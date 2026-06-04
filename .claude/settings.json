@@ -1,0 +1,19 @@
+{
+  "enableAllProjectMcpServers": true,
+  "permissions": {
+    "allow": [
+      "Bash(cat /tmp/compra-agil.html)",
+      "Read(//private/tmp/**)",
+      "Bash(grep -oE '\"https://servicios-compra-agil[^\"]{0,150}\"' /tmp/main.js)",
+      "Bash(grep -oE '\"https://ywri2h0ar5[^\"]{0,150}\"' /tmp/main.js)",
+      "Bash(grep -oE 'status.{0,5}region.{0,5}page|page.{0,5}status.{0,5}region' /tmp/main.js)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d, indent=2, ensure_ascii=False\\)[:3000]\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d, indent=2, ensure_ascii=False\\)[:4000]\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d, indent=2, ensure_ascii=False\\)\\)\")",
+      "Bash(curl -s \"https://compra-agil.mercadopublico.cl/static/js/main.8bde73c3.js\")",
+      "Read(//tmp/**)"
+    ]
+  }
+}

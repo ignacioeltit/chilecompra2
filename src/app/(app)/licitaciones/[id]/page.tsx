@@ -1,0 +1,831 @@
+'use client'
+
+import { useState, useEffect, useRef } from 'react'
+import { useParams, useRouter } from 'next/navigation'
+import { ArrowLeft, CheckCircle, AlertCircle, Paperclip, Clock, Edit2, ExternalLink, Eye, XCircle, ChevronDown } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { type LicitacionConAlerta, type ResultadoLicitacion, RESULTADOS, ESTADOS_LICITACION } from '@/types'
+import { calcularCategoriaAlerta } from '@/lib/utils/categoria-alerta'
+import { BadgeAlerta } from '@/components/ui/badge-alerta'
+import { marcarEnviada, registrarResultado, actualizarLicitacion, actualizarInstitucionLicitacion } from '@/app/actions/licitaciones'
+import { formatCLP, formatFechaHora, urlMercadoPublico } from '@/lib/utils/format'
+import ReactMarkdown from 'react-markdown'
+
+export default function DetalleLicitacionPage() {
+  const { id } = useParams<{ id: string }>()
+  const router = useRouter()
+  const supabase = createClient()
+  const [lic, setLic] = useState<LicitacionConAlerta | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState<'datos' | 'notas' | 'historial' | 'adjuntos'>('datos')
+  const [guardando, setGuardando] = useState<string | null>(null)
+  const [resultadoSeleccionado, setResultadoSeleccionado] = useState<ResultadoLicitacion | ''>('')
+  const [auditoria, setAuditoria] = useState<any[]>([])
+  const [adjuntos, setAdjuntos] = useState<any[]>([])
+  const [menuNoParticipe, setMenuNoParticipe] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!menuNoParticipe) return
+    const cerrar = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuNoParticipe(false)
+      }
+    }
+    document.addEventListener('mousedown', cerrar)
+    return () => document.removeEventListener('mousedown', cerrar)
+  }, [menuNoParticipe])
+
+  useEffect(() => {
+    cargar()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+
+  async function cargar() {
+    setLoading(true)
+
+    const [{ data: vista }, { data: extra }] = await Promise.all([
+      supabase.from('v_licitaciones_con_alerta').select('*').eq('id', id).single(),
+      supabase.from('licitaciones')
+        .select('numero_factura,fecha_emision_factura,fecha_pago,descripcion')
+        .eq('id', id).single(),
+    ])
+
+    if (vista) setLic({ ...vista, ...extra } as LicitacionConAlerta)
+    setLoading(false)
+  }
+
+  async function cargarAuditoria() {
+    const { data } = await supabase
+      .from('auditoria')
+      .select('*, usuario:usuario_id(nombre, email)')
+      .eq('licitacion_id', id)
+      .order('timestamp', { ascending: false })
+    setAuditoria(data ?? [])
+  }
+
+  async function cargarAdjuntos() {
+    const { data } = await supabase
+      .from('adjuntos')
+      .select('*')
+      .eq('licitacion_id', id)
+      .order('subido_en', { ascending: false })
+    setAdjuntos(data ?? [])
+  }
+
+  async function handleEnviada() {
+    setGuardando('enviada')
+    await marcarEnviada(id)
+    await cargar()
+    setGuardando(null)
+  }
+
+  async function handleRegistrarResultado() {
+    if (!resultadoSeleccionado) return
+    setGuardando('resultado')
+    await registrarResultado(id, resultadoSeleccionado as ResultadoLicitacion)
+    await cargar()
+    setGuardando(null)
+  }
+
+  const MOTIVOS_NO_PARTICIPE = [
+    'Exige concesionario autorizado',
+    'Fuera de rubro',
+    'Sin capacidad técnica',
+    'Presupuesto insuficiente',
+    'Plazos muy cortos',
+    'Requiere garantía/boleta',
+    'Otro',
+  ]
+
+  async function handleNoParticipe(motivo: string) {
+    setMenuNoParticipe(false)
+    setGuardando('no_participe')
+    const notaActual = lic?.notas ?? ''
+    const nuevaNota = notaActual
+      ? `${notaActual}\n\nNo participé: ${motivo}`
+      : `No participé: ${motivo}`
+    await actualizarLicitacion(id, { estado: 'no_participe', notas: nuevaNota } as any)
+    await cargar()
+    setGuardando(null)
+  }
+
+  async function handleCampoInline(campo: string, valor: string | number | null) {
+    setGuardando(campo)
+    await actualizarLicitacion(id, { [campo]: valor } as any)
+    await cargar()
+    setGuardando(null)
+  }
+
+  async function handleSubirAdjunto(e: React.ChangeEvent<HTMLInputElement>) {
+    const archivo = e.target.files?.[0]
+    if (!archivo) return
+
+    const { data: uploadData, error } = await supabase.storage
+      .from('adjuntos')
+      .upload(`${id}/${archivo.name}`, archivo)
+
+    if (!error && uploadData) {
+      const { data: urlData } = supabase.storage
+        .from('adjuntos')
+        .getPublicUrl(uploadData.path)
+
+      await supabase.from('adjuntos').insert({
+        licitacion_id: id,
+        nombre_archivo: archivo.name,
+        url_storage: urlData.publicUrl,
+        mime_type: archivo.type,
+        tamano_bytes: archivo.size,
+      })
+      await cargarAdjuntos()
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="p-8 space-y-4">
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="h-10 bg-gray-200 rounded-lg animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+
+  if (!lic) {
+    return (
+      <div className="p-8 text-center text-gray-500">
+        Licitación no encontrada
+      </div>
+    )
+  }
+
+  const categoria = calcularCategoriaAlerta(lic)
+  const necesitaResultado =
+    lic.estado === 'enviada' &&
+    new Date(lic.fecha_cierre_1) < new Date() &&
+    !lic.resultado
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10">
+        <div className="flex items-start gap-4">
+          <button
+            onClick={() => router.back()}
+            className="mt-1 p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 flex-shrink-0"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              <a
+                href={urlMercadoPublico(lic.codigo_chilecompra)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-blue-600 text-sm hover:underline flex items-center gap-1"
+              >
+                {lic.codigo_chilecompra}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+              <BadgeAlerta categoria={categoria} size="sm" />
+            </div>
+            <h1 className="text-base font-semibold text-gray-900 mt-1 line-clamp-1">{lic.nombre}</h1>
+            <InstitucionEditable
+              institucion={lic.institucion}
+              onGuardar={async (nombre) => {
+                setGuardando('institucion')
+                await actualizarInstitucionLicitacion(id, nombre)
+                await cargar()
+                setGuardando(null)
+              }}
+              guardando={guardando === 'institucion'}
+            />
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* No participé con motivo */}
+            {!lic.resultado && lic.estado !== 'cancelada' && lic.estado !== 'no_participe' && (
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => setMenuNoParticipe(v => !v)}
+                  disabled={guardando === 'no_participe'}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 disabled:opacity-50 border border-gray-300"
+                >
+                  <XCircle className="h-4 w-4 text-gray-500" />
+                  No participé
+                  <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                </button>
+                {menuNoParticipe && (
+                  <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1">
+                    {MOTIVOS_NO_PARTICIPE.map(motivo => (
+                      <button
+                        key={motivo}
+                        onClick={() => handleNoParticipe(motivo)}
+                        className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        {motivo}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Marcar revisado */}
+            {lic.estado !== 'revisado' && !lic.resultado && lic.estado !== 'cancelada' && lic.estado !== 'no_participe' && (
+              <button
+                onClick={() => handleCampoInline('estado', 'revisado')}
+                disabled={guardando === 'estado'}
+                className="flex items-center gap-2 px-3 py-2 bg-cyan-100 text-cyan-800 rounded-lg text-sm font-medium hover:bg-cyan-200 disabled:opacity-50 border border-cyan-300"
+              >
+                <Eye className="h-4 w-4" />
+                {guardando === 'estado' ? 'Guardando...' : 'Revisado'}
+              </button>
+            )}
+
+            {/* Marcar enviada */}
+            {lic.estado !== 'enviada' && lic.estado !== 'revisado' && !lic.resultado && (
+              <button
+                onClick={handleEnviada}
+                disabled={guardando === 'enviada'}
+                className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                <CheckCircle className="h-4 w-4" />
+                {guardando === 'enviada' ? 'Guardando...' : 'Enviada'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Banner registrar resultado */}
+      {necesitaResultado && (
+        <div className="bg-blue-50 border-b border-blue-200 px-6 py-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <AlertCircle className="h-4 w-4 text-blue-600 flex-shrink-0" />
+            <span className="text-sm font-medium text-blue-800">
+              Esta licitación ya cerró. ¿Cuál fue el resultado?
+            </span>
+            <select
+              value={resultadoSeleccionado}
+              onChange={e => setResultadoSeleccionado(e.target.value as ResultadoLicitacion | '')}
+              className="text-sm border border-blue-300 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Seleccionar...</option>
+              {(Object.entries(RESULTADOS) as [ResultadoLicitacion, string][]).map(([k, v]) => (
+                <option key={k} value={k}>{v}</option>
+              ))}
+            </select>
+            <button
+              onClick={handleRegistrarResultado}
+              disabled={!resultadoSeleccionado || guardando === 'resultado'}
+              className="px-3 py-1 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-40"
+            >
+              {guardando === 'resultado' ? 'Guardando...' : 'Confirmar'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="bg-white border-b border-gray-200 px-6">
+        <div className="flex gap-0">
+          {(['datos', 'notas', 'historial', 'adjuntos'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => {
+                setTab(t)
+                if (t === 'historial') cargarAuditoria()
+                if (t === 'adjuntos') cargarAdjuntos()
+              }}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors capitalize ${
+                tab === t
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t === 'adjuntos' ? (
+                <span className="flex items-center gap-1.5">
+                  <Paperclip className="h-3.5 w-3.5" />
+                  Adjuntos
+                </span>
+              ) : t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Contenido tabs */}
+      <div className="max-w-4xl mx-auto px-6 py-6">
+        {/* TAB: DATOS */}
+        {tab === 'datos' && (
+          <div className="space-y-4">
+            {/* Descripción editable */}
+            <DescripcionEditor
+              valor={lic.descripcion ?? ''}
+              onGuardar={(descripcion) => handleCampoInline('descripcion', descripcion)}
+              guardando={guardando === 'descripcion'}
+            />
+          {/* Sección financiera — solo visible cuando ganada */}
+          {lic.resultado === 'ganada' && (
+            <GestionFinanciera
+              lic={lic}
+              guardando={guardando}
+              onGuardar={handleCampoInline}
+            />
+          )}
+
+          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+            <CampoInline label="Estado" valor={ESTADOS_LICITACION[lic.estado]} />
+            <CampoInline label="Resultado" valor={lic.resultado ? RESULTADOS[lic.resultado] : '—'} />
+            <CampoInline label="Fecha cierre 1er llamado" valor={formatFechaHora(lic.fecha_cierre_1)} />
+            {lic.fecha_cierre_2 && (
+              <CampoInline label="Fecha cierre 2do llamado" valor={formatFechaHora(lic.fecha_cierre_2)} />
+            )}
+            {lic.fecha_publicacion && (
+              <CampoInline label="Fecha publicación" valor={formatFechaHora(lic.fecha_publicacion)} />
+            )}
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+            <CampoEditable
+              label="Nombre de contacto"
+              valor={lic.contacto_nombre ?? ''}
+              placeholder="Ej: Juan Pérez"
+              guardando={guardando === 'contacto_nombre'}
+              onGuardar={(v) => handleCampoInline('contacto_nombre', v || null)}
+            />
+            <CampoEditable
+              label="Teléfono de contacto"
+              valor={lic.contacto_telefono ?? ''}
+              placeholder="+569XXXXXXXX"
+              guardando={guardando === 'contacto_telefono'}
+              onGuardar={(v) => handleCampoInline('contacto_telefono', v || null)}
+            />
+          </div>
+          </div>
+        )}
+
+        {/* TAB: NOTAS */}
+        {tab === 'notas' && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <NotasEditor
+              valor={lic.notas ?? ''}
+              onGuardar={async (notas) => handleCampoInline('notas', notas)}
+              guardando={guardando === 'notas'}
+            />
+          </div>
+        )}
+
+        {/* TAB: HISTORIAL */}
+        {tab === 'historial' && (
+          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+            {auditoria.length === 0 && (
+              <p className="px-5 py-8 text-center text-gray-400 text-sm">Sin cambios registrados</p>
+            )}
+            {auditoria.map(reg => (
+              <div key={reg.id} className="px-5 py-4 flex gap-4">
+                <div className="flex-shrink-0 mt-0.5">
+                  <Clock className="h-4 w-4 text-gray-300" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-700">
+                    <span className="font-medium">{reg.campo}</span>:{' '}
+                    <span className="text-gray-400 line-through">{reg.valor_anterior ?? 'vacío'}</span>
+                    {' → '}
+                    <span className="text-gray-800">{reg.valor_nuevo ?? 'vacío'}</span>
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {reg.usuario?.nombre ?? reg.usuario?.email ?? 'Sistema'} ·{' '}
+                    {formatFechaHora(reg.timestamp)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* TAB: ADJUNTOS */}
+        {tab === 'adjuntos' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <label className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 cursor-pointer transition-colors">
+                <Paperclip className="h-4 w-4" />
+                Subir archivo
+                <input type="file" className="hidden" onChange={handleSubirAdjunto} />
+              </label>
+            </div>
+            {adjuntos.length === 0 && (
+              <p className="text-center text-gray-400 text-sm py-4">Sin adjuntos</p>
+            )}
+            {adjuntos.map(adj => (
+              <div key={adj.id} className="bg-white rounded-xl border border-gray-200 px-5 py-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{adj.nombre_archivo}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{formatFechaHora(adj.subido_en)}</p>
+                </div>
+                <a
+                  href={adj.url_storage}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  Descargar
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Campo de solo lectura (edición inline se haría con un modal/popover)
+function CampoInline({ label, valor }: { label: string; valor: string }) {
+  return (
+    <div className="flex items-start px-5 py-4 gap-4">
+      <dt className="w-44 flex-shrink-0 text-sm text-gray-500">{label}</dt>
+      <dd className="flex-1 text-sm text-gray-800 font-medium">{valor}</dd>
+    </div>
+  )
+}
+
+function NotasEditor({
+  valor,
+  onGuardar,
+  guardando,
+}: {
+  valor: string
+  onGuardar: (notas: string) => Promise<void>
+  guardando: boolean
+}) {
+  const [editando, setEditando] = useState(false)
+  const [texto, setTexto] = useState(valor)
+
+  async function guardar() {
+    await onGuardar(texto)
+    setEditando(false)
+  }
+
+  if (!editando) {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-700">Notas</h3>
+          <button
+            onClick={() => setEditando(true)}
+            className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline"
+          >
+            <Edit2 className="h-3.5 w-3.5" />
+            Editar
+          </button>
+        </div>
+        {texto ? (
+          <div className="prose prose-sm max-w-none text-gray-700">
+            <ReactMarkdown>{texto}</ReactMarkdown>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 italic">Sin notas. Haz clic en Editar para agregar.</p>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-gray-700 mb-3">Notas (Markdown soportado)</h3>
+      <textarea
+        value={texto}
+        onChange={e => setTexto(e.target.value)}
+        rows={10}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+        placeholder="Escribe notas en Markdown..."
+      />
+      <div className="flex gap-2 mt-3">
+        <button
+          onClick={guardar}
+          disabled={guardando}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+        >
+          {guardando ? 'Guardando...' : 'Guardar'}
+        </button>
+        <button
+          onClick={() => { setTexto(valor); setEditando(false) }}
+          className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function DescripcionEditor({
+  valor,
+  onGuardar,
+  guardando,
+}: {
+  valor: string
+  onGuardar: (v: string) => Promise<void>
+  guardando: boolean
+}) {
+  const [editando, setEditando] = useState(false)
+  const [texto, setTexto] = useState(valor)
+
+  async function guardar() {
+    await onGuardar(texto)
+    setEditando(false)
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-700">Descripción</h3>
+        {!editando && (
+          <button
+            onClick={() => setEditando(true)}
+            className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline"
+          >
+            <Edit2 className="h-3.5 w-3.5" />
+            {texto ? 'Editar' : 'Agregar'}
+          </button>
+        )}
+      </div>
+
+      {editando ? (
+        <div>
+          <textarea
+            value={texto}
+            onChange={e => setTexto(e.target.value)}
+            rows={6}
+            autoFocus
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Pega aquí el detalle de la licitación desde Mercado Público..."
+          />
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={guardar}
+              disabled={guardando}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            >
+              {guardando ? 'Guardando...' : 'Guardar'}
+            </button>
+            <button
+              onClick={() => { setTexto(valor); setEditando(false) }}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : texto ? (
+        <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{texto}</p>
+      ) : (
+        <p className="text-sm text-gray-400 italic">Sin descripción — haz clic en Agregar para ingresar el detalle desde Mercado Público.</p>
+      )}
+    </div>
+  )
+}
+
+function InstitucionEditable({
+  institucion,
+  onGuardar,
+  guardando,
+}: {
+  institucion: string
+  onGuardar: (nombre: string) => Promise<void>
+  guardando: boolean
+}) {
+  const [editando, setEditando] = useState(false)
+  const [valor, setValor] = useState(institucion)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const sinInfo = !institucion || institucion.toLowerCase().includes('sin información') || institucion.toLowerCase().includes('sin institucion') || institucion === 'Sin institución'
+
+  useEffect(() => {
+    if (editando) inputRef.current?.focus()
+  }, [editando])
+
+  async function guardar() {
+    if (!valor.trim() || valor === institucion) { setEditando(false); return }
+    await onGuardar(valor.trim())
+    setEditando(false)
+  }
+
+  if (editando) {
+    return (
+      <div className="flex items-center gap-2 mt-0.5">
+        <input
+          ref={inputRef}
+          value={valor}
+          onChange={e => setValor(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') { setValor(institucion); setEditando(false) } }}
+          className="text-sm border border-blue-400 rounded px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[240px]"
+          disabled={guardando}
+        />
+        <button onClick={guardar} disabled={guardando} className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+          {guardando ? '...' : 'OK'}
+        </button>
+        <button onClick={() => { setValor(institucion); setEditando(false) }} className="text-xs px-2 py-1 border border-gray-300 rounded text-gray-600 hover:bg-gray-50">
+          ✕
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={() => setEditando(true)}
+      className={`flex items-center gap-1.5 mt-0.5 group text-left ${sinInfo ? 'text-amber-600 font-medium' : 'text-gray-500'}`}
+    >
+      <span className="text-sm">{sinInfo ? '⚠ Sin institución — haz clic para corregir' : institucion}</span>
+      <Edit2 className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity flex-shrink-0" />
+    </button>
+  )
+}
+
+function GestionFinanciera({
+  lic,
+  guardando,
+  onGuardar,
+}: {
+  lic: LicitacionConAlerta
+  guardando: string | null
+  onGuardar: (campo: string, valor: string | number | null) => Promise<void>
+}) {
+  const PASOS_OC: EstadoOC[] = ['emitida', 'aceptada', 'facturada', 'pagada']
+  const LABELS_OC: Record<EstadoOC, string> = {
+    emitida:   'OC Emitida',
+    aceptada:  'OC Aceptada',
+    facturada: 'Facturada',
+    pagada:    'Pagada',
+  }
+  const idxActual = lic.estado_oc ? PASOS_OC.indexOf(lic.estado_oc) : -1
+
+  // Formatear fecha ISO → value para input date
+  const toDateInput = (iso: string | null) => iso ? iso.slice(0, 10) : ''
+
+  return (
+    <div className="bg-white rounded-xl border border-green-200 overflow-hidden">
+      {/* Header */}
+      <div className="px-5 py-3 bg-green-50 border-b border-green-200 flex items-center gap-2">
+        <CheckCircle className="h-4 w-4 text-green-600" />
+        <h3 className="text-sm font-semibold text-green-800">Gestión financiera — Licitación ganada</h3>
+      </div>
+
+      {/* Barra de progreso OC */}
+      <div className="px-5 py-4 border-b border-gray-100">
+        <p className="text-xs text-gray-500 mb-3 font-medium uppercase tracking-wide">Estado de la orden de compra</p>
+        <div className="flex items-center gap-0">
+          {PASOS_OC.map((paso, idx) => {
+            const completado = idx <= idxActual
+            const esActual = idx === idxActual
+            const esSiguiente = idx === idxActual + 1
+            return (
+              <div key={paso} className="flex items-center flex-1">
+                <button
+                  onClick={() => onGuardar('estado_oc', paso)}
+                  disabled={guardando === 'estado_oc'}
+                  title={esSiguiente ? `Marcar como ${LABELS_OC[paso]}` : undefined}
+                  className={`flex flex-col items-center gap-1 flex-1 py-2 rounded-lg transition-all ${
+                    esActual
+                      ? 'bg-green-100 border-2 border-green-500'
+                      : completado
+                      ? 'bg-green-50 border border-green-200 opacity-70'
+                      : esSiguiente
+                      ? 'border-2 border-dashed border-gray-300 hover:border-green-400 hover:bg-green-50 cursor-pointer'
+                      : 'border border-gray-100 opacity-40 cursor-default'
+                  }`}
+                >
+                  <span className={`text-xs font-semibold ${esActual ? 'text-green-700' : completado ? 'text-green-600' : 'text-gray-400'}`}>
+                    {completado && !esActual ? '✓' : idx + 1}
+                  </span>
+                  <span className={`text-xs text-center leading-tight ${esActual ? 'text-green-800 font-medium' : 'text-gray-500'}`}>
+                    {LABELS_OC[paso]}
+                  </span>
+                </button>
+                {idx < PASOS_OC.length - 1 && (
+                  <div className={`h-0.5 w-3 flex-shrink-0 ${idx < idxActual ? 'bg-green-400' : 'bg-gray-200'}`} />
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Campos financieros */}
+      <div className="divide-y divide-gray-100">
+        {/* Monto */}
+        <CampoEditable
+          label="Monto adjudicado (CLP)"
+          valor={lic.monto_clp ? String(Math.round(lic.monto_clp)) : ''}
+          placeholder="Ej: 1500000"
+          tipo="number"
+          guardando={guardando === 'monto_clp'}
+          onGuardar={(v) => onGuardar('monto_clp', v ? Number(v) : null)}
+          formatear={(v) => v ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(Number(v)) : '—'}
+        />
+
+        {/* Orden de compra */}
+        <CampoEditable
+          label="Número de orden de compra"
+          valor={lic.orden_compra ?? ''}
+          placeholder="Ej: 1234567-0"
+          guardando={guardando === 'orden_compra'}
+          onGuardar={(v) => onGuardar('orden_compra', v || null)}
+        />
+
+        {/* Número de factura */}
+        <CampoEditable
+          label="Número de factura"
+          valor={lic.numero_factura ?? ''}
+          placeholder="Ej: 4521"
+          guardando={guardando === 'numero_factura'}
+          onGuardar={(v) => onGuardar('numero_factura', v || null)}
+        />
+
+        {/* Fecha emisión factura */}
+        <CampoEditable
+          label="Fecha emisión factura"
+          valor={toDateInput(lic.fecha_emision_factura)}
+          tipo="date"
+          guardando={guardando === 'fecha_emision_factura'}
+          onGuardar={(v) => onGuardar('fecha_emision_factura', v || null)}
+          formatear={(v) => v ? new Date(v + 'T12:00:00').toLocaleDateString('es-CL') : '—'}
+        />
+
+        {/* Fecha pago */}
+        <CampoEditable
+          label="Fecha de pago"
+          valor={toDateInput(lic.fecha_pago)}
+          tipo="date"
+          guardando={guardando === 'fecha_pago'}
+          onGuardar={(v) => onGuardar('fecha_pago', v || null)}
+          formatear={(v) => v ? new Date(v + 'T12:00:00').toLocaleDateString('es-CL') : '—'}
+        />
+      </div>
+    </div>
+  )
+}
+
+type EstadoOC = 'emitida' | 'aceptada' | 'facturada' | 'pagada'
+
+function CampoEditable({
+  label,
+  valor,
+  placeholder = '',
+  tipo = 'text',
+  guardando,
+  onGuardar,
+  formatear,
+}: {
+  label: string
+  valor: string
+  placeholder?: string
+  tipo?: 'text' | 'number' | 'date'
+  guardando: boolean
+  onGuardar: (v: string) => Promise<void>
+  formatear?: (v: string) => string
+}) {
+  const [editando, setEditando] = useState(false)
+  const [local, setLocal] = useState(valor)
+
+  async function guardar() {
+    await onGuardar(local)
+    setEditando(false)
+  }
+
+  const display = valor ? (formatear ? formatear(valor) : valor) : '—'
+
+  if (editando) {
+    return (
+      <div className="px-5 py-3 flex items-center gap-3">
+        <span className="text-sm text-gray-500 w-48 flex-shrink-0">{label}</span>
+        <input
+          type={tipo}
+          value={local}
+          onChange={e => setLocal(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') { setLocal(valor); setEditando(false) } }}
+          autoFocus
+          placeholder={placeholder}
+          className="flex-1 px-3 py-1.5 border border-blue-400 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          disabled={guardando}
+        />
+        <button onClick={guardar} disabled={guardando} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
+          {guardando ? '...' : 'OK'}
+        </button>
+        <button onClick={() => { setLocal(valor); setEditando(false) }} className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
+          ✕
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={() => { setLocal(valor); setEditando(true) }}
+      className="w-full px-5 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors group text-left"
+    >
+      <span className="text-sm text-gray-500 w-48 flex-shrink-0">{label}</span>
+      <span className={`text-sm flex-1 ${valor ? 'text-gray-900 font-medium' : 'text-gray-300 italic'}`}>{display}</span>
+      <Edit2 className="h-3.5 w-3.5 text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+    </button>
+  )
+}

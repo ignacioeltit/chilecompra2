@@ -1,0 +1,37 @@
+{
+  "name": "Chilecompra2 — Licitaciones",
+  "short_name": "Chilecompra2",
+  "description": "Gestión de licitaciones Mercado Público",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#F9FAFB",
+  "theme_color": "#2563EB",
+  "orientation": "portrait-primary",
+  "categories": ["productivity", "business"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nueva licitación",
+      "url": "/licitaciones/nueva",
+      "description": "Crear una nueva licitación"
+    },
+    {
+      "name": "Dashboard",
+      "url": "/dashboard",
+      "description": "Ver el dashboard"
+    }
+  ]
+}
