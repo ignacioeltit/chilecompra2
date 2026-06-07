@@ -201,59 +201,6 @@ export default function DetalleLicitacionPage() {
               guardando={guardando === 'institucion'}
             />
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {/* No participé con motivo */}
-            {!lic.resultado && lic.estado !== 'cancelada' && lic.estado !== 'no_participe' && (
-              <div className="relative" ref={menuRef}>
-                <button
-                  onClick={() => setMenuNoParticipe(v => v === 'header' ? null : 'header')}
-                  disabled={guardando === 'no_participe'}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 disabled:opacity-50 border border-gray-300"
-                >
-                  <XCircle className="h-4 w-4 text-gray-500" />
-                  No participé
-                  <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
-                </button>
-                {menuNoParticipe === 'header' && (
-                  <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1">
-                    {MOTIVOS_NO_PARTICIPE.map(motivo => (
-                      <button
-                        key={motivo}
-                        onClick={() => handleNoParticipe(motivo)}
-                        className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                      >
-                        {motivo}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Marcar revisado */}
-            {lic.estado !== 'revisado' && !lic.resultado && lic.estado !== 'cancelada' && lic.estado !== 'no_participe' && (
-              <button
-                onClick={() => handleCampoInline('estado', 'revisado')}
-                disabled={guardando === 'estado'}
-                className="flex items-center gap-2 px-3 py-2 bg-cyan-100 text-cyan-800 rounded-lg text-sm font-medium hover:bg-cyan-200 disabled:opacity-50 border border-cyan-300"
-              >
-                <Eye className="h-4 w-4" />
-                {guardando === 'estado' ? 'Guardando...' : 'Revisado'}
-              </button>
-            )}
-
-            {/* Marcar enviada */}
-            {lic.estado !== 'enviada' && lic.estado !== 'revisado' && !lic.resultado && (
-              <button
-                onClick={handleEnviada}
-                disabled={guardando === 'enviada'}
-                className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
-              >
-                <CheckCircle className="h-4 w-4" />
-                {guardando === 'enviada' ? 'Guardando...' : 'Enviada'}
-              </button>
-            )}
-          </div>
         </div>
       </div>
 
