@@ -78,6 +78,7 @@ export default function DetalleLicitacionPage() {
     await marcarEnviada(id)
     await cargar()
     setGuardando(null)
+    router.refresh()
   }
 
   async function handleRegistrarResultado() {
@@ -86,6 +87,7 @@ export default function DetalleLicitacionPage() {
     await registrarResultado(id, resultadoSeleccionado as ResultadoLicitacion)
     await cargar()
     setGuardando(null)
+    router.refresh()
   }
 
   const MOTIVOS_NO_PARTICIPE = [
@@ -108,6 +110,8 @@ export default function DetalleLicitacionPage() {
     await actualizarLicitacion(id, { estado: 'no_participe', notas: nuevaNota } as any)
     await cargar()
     setGuardando(null)
+    // Invalida el router cache para que el dashboard muestre datos frescos al volver
+    router.refresh()
   }
 
   async function handleCampoInline(campo: string, valor: string | number | null) {
@@ -115,6 +119,7 @@ export default function DetalleLicitacionPage() {
     await actualizarLicitacion(id, { [campo]: valor } as any)
     await cargar()
     setGuardando(null)
+    router.refresh()
   }
 
   async function handleSubirAdjunto(e: React.ChangeEvent<HTMLInputElement>) {
