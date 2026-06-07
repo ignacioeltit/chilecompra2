@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { type LicitacionConAlerta, type ResultadoLicitacion, RESULTADOS, ESTADOS_LICITACION } from '@/types'
 import { calcularCategoriaAlerta } from '@/lib/utils/categoria-alerta'
 import { BadgeAlerta } from '@/components/ui/badge-alerta'
-import { marcarEnviada, registrarResultado, actualizarLicitacion, actualizarInstitucionLicitacion } from '@/app/actions/licitaciones'
+import { actualizarInstitucionLicitacion } from '@/app/actions/licitaciones'
 import { formatCLP, formatFechaHora, urlMercadoPublico } from '@/lib/utils/format'
 import ReactMarkdown from 'react-markdown'
 
@@ -75,8 +75,10 @@ export default function DetalleLicitacionPage() {
 
   async function handleEnviada() {
     setGuardando('enviada')
-    await marcarEnviada(id)
-    await cargar()
+    try {
+      await actualizarDirecto({ estado: 'enviada' })
+      await cargar()
+    } catch { /* logeado */ }
     setGuardando(null)
     localStorage.setItem('dashboard_stale', '1')
     router.refresh()
@@ -85,8 +87,10 @@ export default function DetalleLicitacionPage() {
   async function handleRegistrarResultado() {
     if (!resultadoSeleccionado) return
     setGuardando('resultado')
-    await registrarResultado(id, resultadoSeleccionado as ResultadoLicitacion)
-    await cargar()
+    try {
+      await actualizarDirecto({ resultado: resultadoSeleccionado })
+      await cargar()
+    } catch { /* logeado */ }
     setGuardando(null)
     localStorage.setItem('dashboard_stale', '1')
     router.refresh()
@@ -102,15 +106,33 @@ export default function DetalleLicitacionPage() {
     'Otro',
   ]
 
+  // Update directo con el cliente browser (mismo cliente que cargar()).
+  // Evita depender del server action, que puede fallar si las cookies
+  // no se transmiten bien en el contexto serverless de Vercel.
+  async function actualizarDirecto(campos: Record<string, unknown>) {
+    const { error } = await supabase
+      .from('licitaciones')
+      .update(campos)
+      .eq('id', id)
+    if (error) {
+      console.error('[actualizarDirecto] error:', error)
+      throw error
+    }
+  }
+
   async function handleNoParticipe(motivo: string) {
     setMenuNoParticipe(null)
     setGuardando('no_participe')
-    const notaActual = lic?.notas ?? ''
-    const nuevaNota = notaActual
-      ? `${notaActual}\n\nNo participé: ${motivo}`
-      : `No participé: ${motivo}`
-    await actualizarLicitacion(id, { estado: 'no_participe', notas: nuevaNota } as any)
-    await cargar()
+    try {
+      const notaActual = lic?.notas ?? ''
+      const nuevaNota = notaActual
+        ? `${notaActual}\n\nNo participé: ${motivo}`
+        : `No participé: ${motivo}`
+      await actualizarDirecto({ estado: 'no_participe', notas: nuevaNota })
+      await cargar()
+    } catch {
+      // error ya logeado en actualizarDirecto
+    }
     setGuardando(null)
     localStorage.setItem('dashboard_stale', '1')
     router.refresh()
@@ -118,8 +140,12 @@ export default function DetalleLicitacionPage() {
 
   async function handleCampoInline(campo: string, valor: string | number | null) {
     setGuardando(campo)
-    await actualizarLicitacion(id, { [campo]: valor } as any)
-    await cargar()
+    try {
+      await actualizarDirecto({ [campo]: valor })
+      await cargar()
+    } catch {
+      // error ya logeado en actualizarDirecto
+    }
     setGuardando(null)
     localStorage.setItem('dashboard_stale', '1')
     router.refresh()
