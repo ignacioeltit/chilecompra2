@@ -24,13 +24,18 @@ export default function DetalleLicitacionPage() {
   const [adjuntos, setAdjuntos] = useState<any[]>([])
   // 'desktop' | 'sidebar' | 'fab' | null — un solo menú abierto a la vez
   const [menuNoParticipe, setMenuNoParticipe] = useState<string | null>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  // Refs separados para el menú del sidebar (desktop) y el FAB (móvil).
+  // Un solo ref compartido hace que el último montado gane → el FAB (oculto
+  // en desktop) sobreescribía el ref del sidebar, rompiendo el outside-click.
+  const menuRefSidebar = useRef<HTMLDivElement>(null)
+  const menuRefFab = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!menuNoParticipe) return
     const cerrar = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuNoParticipe(null)
-      }
+      const enSidebar = menuRefSidebar.current?.contains(e.target as Node)
+      const enFab = menuRefFab.current?.contains(e.target as Node)
+      if (!enSidebar && !enFab) setMenuNoParticipe(null)
     }
     document.addEventListener('mousedown', cerrar)
     return () => document.removeEventListener('mousedown', cerrar)
@@ -75,25 +80,31 @@ export default function DetalleLicitacionPage() {
 
   async function handleEnviada() {
     setGuardando('enviada')
+    setErrorMsg(null)
     try {
       await actualizarDirecto({ estado: 'enviada' })
       await cargar()
-    } catch { /* logeado */ }
+      localStorage.setItem('dashboard_stale', '1')
+      router.refresh()
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : 'Error al guardar')
+    }
     setGuardando(null)
-    localStorage.setItem('dashboard_stale', '1')
-    router.refresh()
   }
 
   async function handleRegistrarResultado() {
     if (!resultadoSeleccionado) return
     setGuardando('resultado')
+    setErrorMsg(null)
     try {
       await actualizarDirecto({ resultado: resultadoSeleccionado })
       await cargar()
-    } catch { /* logeado */ }
+      localStorage.setItem('dashboard_stale', '1')
+      router.refresh()
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : 'Error al guardar')
+    }
     setGuardando(null)
-    localStorage.setItem('dashboard_stale', '1')
-    router.refresh()
   }
 
   const MOTIVOS_NO_PARTICIPE = [
@@ -110,19 +121,27 @@ export default function DetalleLicitacionPage() {
   // Evita depender del server action, que puede fallar si las cookies
   // no se transmiten bien en el contexto serverless de Vercel.
   async function actualizarDirecto(campos: Record<string, unknown>) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('licitaciones')
       .update(campos)
       .eq('id', id)
+      .select('id')  // necesario para detectar 0 filas actualizadas
     if (error) {
       console.error('[actualizarDirecto] error:', error)
       throw error
+    }
+    // Si no se actualizó ninguna fila, RLS bloqueó o la sesión expiró
+    if (!data || data.length === 0) {
+      const msg = 'Sin permisos para guardar o sesión expirada — recarga la página'
+      console.error('[actualizarDirecto] 0 filas actualizadas')
+      throw new Error(msg)
     }
   }
 
   async function handleNoParticipe(motivo: string) {
     setMenuNoParticipe(null)
     setGuardando('no_participe')
+    setErrorMsg(null)
     try {
       const notaActual = lic?.notas ?? ''
       const nuevaNota = notaActual
@@ -130,25 +149,26 @@ export default function DetalleLicitacionPage() {
         : `No participé: ${motivo}`
       await actualizarDirecto({ estado: 'no_participe', notas: nuevaNota })
       await cargar()
-    } catch {
-      // error ya logeado en actualizarDirecto
+      localStorage.setItem('dashboard_stale', '1')
+      router.refresh()
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : 'Error al guardar')
     }
     setGuardando(null)
-    localStorage.setItem('dashboard_stale', '1')
-    router.refresh()
   }
 
   async function handleCampoInline(campo: string, valor: string | number | null) {
     setGuardando(campo)
+    setErrorMsg(null)
     try {
       await actualizarDirecto({ [campo]: valor })
       await cargar()
-    } catch {
-      // error ya logeado en actualizarDirecto
+      localStorage.setItem('dashboard_stale', '1')
+      router.refresh()
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : 'Error al guardar')
     }
     setGuardando(null)
-    localStorage.setItem('dashboard_stale', '1')
-    router.refresh()
   }
 
   async function handleSubirAdjunto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -237,6 +257,22 @@ export default function DetalleLicitacionPage() {
           </div>
         </div>
       </div>
+
+      {/* Banner error al guardar */}
+      {errorMsg && (
+        <div className="bg-red-50 border-b border-red-200 px-6 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm text-red-700">
+            <AlertCircle className="h-4 w-4 flex-shrink-0 text-red-500" />
+            {errorMsg}
+          </div>
+          <button
+            onClick={() => setErrorMsg(null)}
+            className="text-red-400 hover:text-red-600 text-xs font-medium flex-shrink-0"
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
 
       {/* Banner registrar resultado */}
       {necesitaResultado && (
@@ -431,7 +467,7 @@ export default function DetalleLicitacionPage() {
             </div>
             <div className="p-3 space-y-2">
               {!lic.resultado && lic.estado !== 'cancelada' && lic.estado !== 'no_participe' && (
-                <div className="relative" ref={menuRef}>
+                <div className="relative" ref={menuRefSidebar}>
                   <button
                     onClick={() => setMenuNoParticipe(v => v === 'sidebar' ? null : 'sidebar')}
                     disabled={guardando === 'no_participe'}
@@ -495,7 +531,7 @@ export default function DetalleLicitacionPage() {
       </div>
 
       {/* ── FAB móvil — acciones flotantes ── */}
-      {!lic.resultado && lic.estado !== 'cancelada' && (
+      {!lic.resultado && lic.estado !== 'cancelada' && lic.estado !== 'no_participe' && (
         <div className="md:hidden fixed bottom-20 left-0 right-0 px-4 z-30">
           <div className="bg-white border border-gray-200 rounded-2xl shadow-2xl p-3 flex gap-2">
             {lic.estado !== 'enviada' && lic.estado !== 'revisado' && (
@@ -508,7 +544,7 @@ export default function DetalleLicitacionPage() {
                 {guardando === 'enviada' ? '...' : 'Enviada'}
               </button>
             )}
-            {lic.estado !== 'revisado' && lic.estado !== 'no_participe' && (
+            {lic.estado !== 'revisado' && (
               <button
                 onClick={() => handleCampoInline('estado', 'revisado')}
                 disabled={guardando === 'estado'}
@@ -518,8 +554,7 @@ export default function DetalleLicitacionPage() {
                 {guardando === 'estado' ? '...' : 'Revisado'}
               </button>
             )}
-            {lic.estado !== 'no_participe' && (
-              <div className="relative" ref={menuRef}>
+            <div className="relative" ref={menuRefFab}>
                 <button
                   onClick={() => setMenuNoParticipe(v => v === 'fab' ? null : 'fab')}
                   disabled={guardando === 'no_participe'}
@@ -535,8 +570,7 @@ export default function DetalleLicitacionPage() {
                     ))}
                   </div>
                 )}
-              </div>
-            )}
+            </div>
           </div>
         </div>
       )}
