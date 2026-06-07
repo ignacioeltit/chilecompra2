@@ -313,127 +313,251 @@ export default function DetalleLicitacionPage() {
         </div>
       </div>
 
-      {/* Contenido tabs */}
-      <div className="max-w-4xl mx-auto px-6 py-6">
-        {/* TAB: DATOS */}
-        {tab === 'datos' && (
-          <div className="space-y-4">
-            {/* Descripción editable */}
-            <DescripcionEditor
-              valor={lic.descripcion ?? ''}
-              onGuardar={(descripcion) => handleCampoInline('descripcion', descripcion)}
-              guardando={guardando === 'descripcion'}
-            />
-          {/* Sección financiera — solo visible cuando ganada */}
+      {/* Layout 2 columnas desktop / 1 columna móvil */}
+      <div className="max-w-6xl mx-auto px-4 md:px-6 py-4 md:py-6 md:flex md:gap-6 md:items-start pb-28 md:pb-6">
+
+        {/* ── Columna principal (izquierda en desktop) ── */}
+        <div className="flex-1 min-w-0 space-y-4">
+
+          {/* Tabs — solo en móvil / tablet */}
+          <div className="md:hidden bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="flex border-b border-gray-100">
+              {(['datos', 'notas', 'historial', 'adjuntos'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => { setTab(t); if (t === 'historial') cargarAuditoria(); if (t === 'adjuntos') cargarAdjuntos() }}
+                  className={`flex-1 py-3 text-xs font-semibold capitalize transition-colors ${tab === t ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400'}`}
+                >
+                  {t === 'adjuntos' ? '📎' : t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Descripción — siempre visible */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/50">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Descripción</h3>
+            </div>
+            <div className="p-5">
+              <DescripcionEditor
+                valor={lic.descripcion ?? ''}
+                onGuardar={(descripcion) => handleCampoInline('descripcion', descripcion)}
+                guardando={guardando === 'descripcion'}
+              />
+            </div>
+          </div>
+
+          {/* Sección financiera (ganadas) */}
           {lic.resultado === 'ganada' && (
-            <GestionFinanciera
-              lic={lic}
-              guardando={guardando}
-              onGuardar={handleCampoInline}
-            />
+            <GestionFinanciera lic={lic} guardando={guardando} onGuardar={handleCampoInline} />
           )}
 
-          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-            <CampoInline label="Estado" valor={ESTADOS_LICITACION[lic.estado]} />
-            <CampoInline label="Resultado" valor={lic.resultado ? RESULTADOS[lic.resultado] : '—'} />
-            <CampoInline label="Fecha cierre 1er llamado" valor={formatFechaHora(lic.fecha_cierre_1)} />
-            {lic.fecha_cierre_2 && (
-              <CampoInline label="Fecha cierre 2do llamado" valor={formatFechaHora(lic.fecha_cierre_2)} />
-            )}
-            {lic.fecha_publicacion && (
-              <CampoInline label="Fecha publicación" valor={formatFechaHora(lic.fecha_publicacion)} />
-            )}
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-            <CampoEditable
-              label="Nombre de contacto"
-              valor={lic.contacto_nombre ?? ''}
-              placeholder="Ej: Juan Pérez"
-              guardando={guardando === 'contacto_nombre'}
-              onGuardar={(v) => handleCampoInline('contacto_nombre', v || null)}
-            />
-            <CampoEditable
-              label="Teléfono de contacto"
-              valor={lic.contacto_telefono ?? ''}
-              placeholder="+569XXXXXXXX"
-              guardando={guardando === 'contacto_telefono'}
-              onGuardar={(v) => handleCampoInline('contacto_telefono', v || null)}
-            />
-          </div>
-          </div>
-        )}
-
-        {/* TAB: NOTAS */}
-        {tab === 'notas' && (
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <NotasEditor
-              valor={lic.notas ?? ''}
-              onGuardar={async (notas) => handleCampoInline('notas', notas)}
-              guardando={guardando === 'notas'}
-            />
-          </div>
-        )}
-
-        {/* TAB: HISTORIAL */}
-        {tab === 'historial' && (
-          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-            {auditoria.length === 0 && (
-              <p className="px-5 py-8 text-center text-gray-400 text-sm">Sin cambios registrados</p>
-            )}
-            {auditoria.map(reg => (
-              <div key={reg.id} className="px-5 py-4 flex gap-4">
-                <div className="flex-shrink-0 mt-0.5">
-                  <Clock className="h-4 w-4 text-gray-300" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-700">
-                    <span className="font-medium">{reg.campo}</span>:{' '}
-                    <span className="text-gray-400 line-through">{reg.valor_anterior ?? 'vacío'}</span>
-                    {' → '}
-                    <span className="text-gray-800">{reg.valor_nuevo ?? 'vacío'}</span>
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {reg.usuario?.nombre ?? reg.usuario?.email ?? 'Sistema'} ·{' '}
-                    {formatFechaHora(reg.timestamp)}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* TAB: ADJUNTOS */}
-        {tab === 'adjuntos' && (
-          <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <label className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 cursor-pointer transition-colors">
-                <Paperclip className="h-4 w-4" />
-                Subir archivo
-                <input type="file" className="hidden" onChange={handleSubirAdjunto} />
-              </label>
+          {/* Datos de la licitación */}
+          <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden ${tab !== 'datos' ? 'md:block hidden' : ''}`}>
+            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/50">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Datos</h3>
             </div>
-            {adjuntos.length === 0 && (
-              <p className="text-center text-gray-400 text-sm py-4">Sin adjuntos</p>
-            )}
-            {adjuntos.map(adj => (
-              <div key={adj.id} className="bg-white rounded-xl border border-gray-200 px-5 py-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{adj.nombre_archivo}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{formatFechaHora(adj.subido_en)}</p>
-                </div>
-                <a
-                  href={adj.url_storage}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm text-blue-600 hover:underline"
-                >
-                  Descargar
-                </a>
-              </div>
-            ))}
+            <div className="divide-y divide-gray-50">
+              <CampoInline label="Estado" valor={ESTADOS_LICITACION[lic.estado]} />
+              <CampoInline label="Resultado" valor={lic.resultado ? RESULTADOS[lic.resultado] : '—'} />
+              <CampoInline label="Cierre 1er llamado" valor={formatFechaHora(lic.fecha_cierre_1)} />
+              {lic.fecha_cierre_2 && <CampoInline label="Cierre 2do llamado" valor={formatFechaHora(lic.fecha_cierre_2)} />}
+              {lic.fecha_publicacion && <CampoInline label="Publicación" valor={formatFechaHora(lic.fecha_publicacion)} />}
+            </div>
           </div>
-        )}
+
+          {/* Contacto */}
+          <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden ${tab !== 'datos' ? 'md:block hidden' : ''}`}>
+            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/50">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Contacto</h3>
+            </div>
+            <div className="divide-y divide-gray-50">
+              <CampoEditable label="Nombre" valor={lic.contacto_nombre ?? ''} placeholder="Ej: Juan Pérez" guardando={guardando === 'contacto_nombre'} onGuardar={(v) => handleCampoInline('contacto_nombre', v || null)} />
+              <CampoEditable label="Teléfono" valor={lic.contacto_telefono ?? ''} placeholder="+569XXXXXXXX" guardando={guardando === 'contacto_telefono'} onGuardar={(v) => handleCampoInline('contacto_telefono', v || null)} />
+            </div>
+          </div>
+
+          {/* Notas — móvil solo si tab activo, desktop siempre */}
+          <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden ${tab !== 'notas' ? 'md:block hidden' : ''}`}>
+            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/50">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Notas</h3>
+            </div>
+            <div className="p-5">
+              <NotasEditor valor={lic.notas ?? ''} onGuardar={async (notas) => handleCampoInline('notas', notas)} guardando={guardando === 'notas'} />
+            </div>
+          </div>
+
+          {/* Historial */}
+          {(tab === 'historial') && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/50">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Historial de cambios</h3>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {auditoria.length === 0 && <p className="px-5 py-8 text-center text-gray-400 text-sm">Sin cambios registrados</p>}
+                {auditoria.map(reg => (
+                  <div key={reg.id} className="px-5 py-4 flex gap-4">
+                    <Clock className="h-4 w-4 text-gray-300 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm text-gray-700">
+                        <span className="font-semibold">{reg.campo}</span>:{' '}
+                        <span className="text-gray-400 line-through">{reg.valor_anterior ?? 'vacío'}</span>
+                        {' → '}
+                        <span className="text-gray-800">{reg.valor_nuevo ?? 'vacío'}</span>
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {reg.usuario?.nombre ?? reg.usuario?.email ?? 'Sistema'} · {formatFechaHora(reg.timestamp)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Adjuntos */}
+          {(tab === 'adjuntos') && (
+            <div className="space-y-3">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <label className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 cursor-pointer transition-colors">
+                  <Paperclip className="h-4 w-4" />
+                  Subir archivo
+                  <input type="file" className="hidden" onChange={handleSubirAdjunto} />
+                </label>
+              </div>
+              {adjuntos.length === 0 && <p className="text-center text-gray-400 text-sm py-4">Sin adjuntos</p>}
+              {adjuntos.map(adj => (
+                <div key={adj.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{adj.nombre_archivo}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{formatFechaHora(adj.subido_en)}</p>
+                  </div>
+                  <a href={adj.url_storage} target="_blank" rel="noreferrer" className="text-sm text-blue-600 font-semibold hover:underline">Descargar</a>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Columna derecha — solo desktop ── */}
+        <div className="hidden md:flex flex-col gap-4 w-72 flex-shrink-0">
+          {/* Acciones rápidas */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Acciones</h3>
+            </div>
+            <div className="p-3 space-y-2">
+              {!lic.resultado && lic.estado !== 'cancelada' && lic.estado !== 'no_participe' && (
+                <div className="relative" ref={menuRef}>
+                  <button
+                    onClick={() => setMenuNoParticipe(v => !v)}
+                    disabled={guardando === 'no_participe'}
+                    className="flex items-center gap-2 w-full px-3 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-xl text-sm font-medium border border-gray-200 transition-colors"
+                  >
+                    <XCircle className="h-4 w-4 text-gray-400" />
+                    No participé
+                    <ChevronDown className="h-3.5 w-3.5 text-gray-400 ml-auto" />
+                  </button>
+                  {menuNoParticipe && (
+                    <div className="absolute right-0 top-full mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl z-20 py-1">
+                      {MOTIVOS_NO_PARTICIPE.map(motivo => (
+                        <button key={motivo} onClick={() => handleNoParticipe(motivo)} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">{motivo}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {lic.estado !== 'revisado' && !lic.resultado && lic.estado !== 'cancelada' && lic.estado !== 'no_participe' && (
+                <button onClick={() => handleCampoInline('estado', 'revisado')} disabled={guardando === 'estado'} className="flex items-center gap-2 w-full px-3 py-2.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-800 rounded-xl text-sm font-semibold border border-cyan-200 transition-colors">
+                  <Eye className="h-4 w-4" />
+                  {guardando === 'estado' ? 'Guardando...' : 'Marcar como Revisado'}
+                </button>
+              )}
+              {lic.estado !== 'enviada' && lic.estado !== 'revisado' && !lic.resultado && (
+                <button onClick={handleEnviada} disabled={guardando === 'enviada'} className="flex items-center gap-2 w-full px-3 py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-green-500/25">
+                  <CheckCircle className="h-4 w-4" />
+                  {guardando === 'enviada' ? 'Guardando...' : 'Marcar como Enviada'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Mini navegación de tabs */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Secciones</h3>
+            </div>
+            <div className="p-2 space-y-0.5">
+              {(['historial', 'adjuntos'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => { setTab(t); if (t === 'historial') cargarAuditoria(); if (t === 'adjuntos') cargarAdjuntos() }}
+                  className={`flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-colors capitalize ${tab === t ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  {t === 'historial' ? <Clock className="h-4 w-4" /> : <Paperclip className="h-4 w-4" />}
+                  {t === 'historial' ? 'Historial' : 'Adjuntos'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Info rápida */}
+          {lic.monto_clp && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+              <p className="text-xs text-gray-400 font-medium mb-1">Monto</p>
+              <p className="text-xl font-bold text-gray-900">{formatCLP(lic.monto_clp)}</p>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* ── FAB móvil — acciones flotantes ── */}
+      {!lic.resultado && lic.estado !== 'cancelada' && (
+        <div className="md:hidden fixed bottom-20 left-0 right-0 px-4 z-30">
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-2xl p-3 flex gap-2">
+            {lic.estado !== 'enviada' && lic.estado !== 'revisado' && (
+              <button
+                onClick={handleEnviada}
+                disabled={guardando === 'enviada'}
+                className="flex-1 flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-500 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+              >
+                <CheckCircle className="h-4 w-4" />
+                {guardando === 'enviada' ? '...' : 'Enviada'}
+              </button>
+            )}
+            {lic.estado !== 'revisado' && lic.estado !== 'no_participe' && (
+              <button
+                onClick={() => handleCampoInline('estado', 'revisado')}
+                disabled={guardando === 'estado'}
+                className="flex-1 flex items-center justify-center gap-2 py-3 bg-cyan-500 hover:bg-cyan-400 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+              >
+                <Eye className="h-4 w-4" />
+                {guardando === 'estado' ? '...' : 'Revisado'}
+              </button>
+            )}
+            {lic.estado !== 'no_participe' && (
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => setMenuNoParticipe(v => !v)}
+                  disabled={guardando === 'no_participe'}
+                  className="flex items-center justify-center gap-1 px-3 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl text-sm font-bold border border-gray-200 transition-colors disabled:opacity-50"
+                >
+                  <XCircle className="h-4 w-4" />
+                </button>
+                {menuNoParticipe && (
+                  <div className="absolute bottom-full right-0 mb-2 w-56 bg-white border border-gray-200 rounded-2xl shadow-2xl z-20 py-2">
+                    <p className="px-4 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">No participé porque...</p>
+                    {MOTIVOS_NO_PARTICIPE.map(motivo => (
+                      <button key={motivo} onClick={() => handleNoParticipe(motivo)} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">{motivo}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

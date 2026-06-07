@@ -12,7 +12,7 @@ const MP_API_KEY     = 'e93089e4-437c-4723-b343-4fa20045e3bc'
 // ── API oficial (LE / LP / LR / L1) ─────────────────────────
 const MP_API_URL     = 'https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json'
 
-const REGION_NUBLE   = '16'
+const REGIONES_DEFAULT = ['16'] // Ñuble
 
 // Tipo unificado para mostrar en la UI
 export interface ItemSync {
@@ -24,6 +24,7 @@ export interface ItemSync {
   organismo: string
   monto: number | null
   tipo: 'COT' | 'LE' | 'LP' | 'LR' | 'L1' | 'LC'
+  region?: string // código numérico de región MP
 }
 
 // "2026-06-02 15:39" → ISO Chile
@@ -74,74 +75,188 @@ function tipoDesdeCodigoExterno(codigo: string): ItemSync['tipo'] {
 }
 
 // ── Fetch COT desde buscador ─────────────────────────────────
-async function fetchCOT(dateFrom: string, dateTo: string): Promise<ItemSync[]> {
+async function fetchCOT(dateFrom: string, dateTo: string, regiones: string[]): Promise<ItemSync[]> {
   const tokenRes = await fetch(MP_AUTH_URL, {
     headers: { 'Accept': 'application/json', 'Origin': 'https://buscador.mercadopublico.cl' },
     next: { revalidate: 0 },
   })
   const token = (await tokenRes.json()).payload.access_token
 
-  const params = new URLSearchParams({
-    date_from: dateFrom, date_to: dateTo,
-    order_by: 'recent', region: REGION_NUBLE, status: '2', page_number: '1',
-  })
+  const fetchRegion = async (region: string): Promise<ItemSync[]> => {
+    const params = new URLSearchParams({
+      date_from: dateFrom, date_to: dateTo,
+      order_by: 'recent', region, status: '2', page_number: '1',
+    })
 
-  const fetchPag = async (page: number) => {
-    params.set('page_number', String(page))
-    const res = await fetch(`${MP_SEARCH_URL}?${params}`, {
-      headers: {
+    const fetchPag = async (page: number) => {
+      params.set('page_number', String(page))
+      const res = await fetch(`${MP_SEARCH_URL}?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-api-key': MP_API_KEY,
+          'Accept': 'application/json',
+          'Origin': 'https://buscador.mercadopublico.cl',
+        },
+        next: { revalidate: 0 },
+      })
+      const json = await res.json()
+      return { resultados: json.payload?.resultados ?? [], pageCount: json.payload?.pageCount ?? 1 }
+    }
+
+    const primera = await fetchPag(1)
+    let todas = [...primera.resultados]
+    for (let p = 2; p <= Math.min(primera.pageCount, 10); p++) {
+      todas = todas.concat((await fetchPag(p)).resultados)
+    }
+
+    return todas.map((r: Record<string, unknown>) => ({
+      codigo:            String(r.codigo),
+      nombre:            String(r.nombre ?? ''),
+      descripcion:       null,
+      fecha_publicacion: parseFechaMP(r.fecha_publicacion as string) ?? null,
+      fecha_cierre:      parseFechaMP(r.fecha_cierre as string),
+      organismo:         String(r.organismo ?? ''),
+      monto:             typeof r.monto_disponible_CLP === 'number' ? r.monto_disponible_CLP : null,
+      tipo:              'COT' as const,
+      region,
+    }))
+  }
+
+  const resultados = await Promise.all(regiones.map(r => fetchRegion(r).catch(() => [] as ItemSync[])))
+  const vistos = new Set<string>()
+  return resultados.flat().filter(item => {
+    if (vistos.has(item.codigo)) return false
+    vistos.add(item.codigo)
+    return true
+  })
+}
+
+// ── Fetch LE/LP/LR/L1 desde API oficial ─────────────────────
+async function fetchLicitaciones(ticket: string, regiones: string[]): Promise<ItemSync[]> {
+  const fetchRegion = async (region: string): Promise<ItemSync[]> => {
+    const res = await fetch(
+      `${MP_API_URL}?ticket=${ticket}&estado=publicada&region=${region}`,
+      { next: { revalidate: 0 } }
+    )
+    const json = await res.json()
+    if (json.Codigo && json.Codigo !== 200) return []
+
+    return (json.Listado ?? []).map((r: Record<string, unknown>) => {
+      const fechas = r.Fechas as Record<string, string> | null
+      const comprador = r.Comprador as Record<string, string> | null
+      return {
+        codigo:            String(r.CodigoExterno ?? ''),
+        nombre:            String(r.Nombre ?? ''),
+        descripcion:       r.Descripcion ? String(r.Descripcion) : null,
+        fecha_publicacion: parseFechaMP(fechas?.FechaPublicacion) ?? null,
+        fecha_cierre:      parseFechaMP(fechas?.FechaCierre),
+        organismo:         String(comprador?.NombreOrganismo ?? comprador?.NombreUnidad ?? ''),
+        monto:             typeof r.MontoEstimado === 'number' ? r.MontoEstimado : null,
+        tipo:              tipoDesdeCodigoExterno(String(r.CodigoExterno ?? '')),
+        region,
+      }
+    })
+  }
+
+  const resultados = await Promise.all(regiones.map(r => fetchRegion(r).catch(() => [] as ItemSync[])))
+  const vistos = new Set<string>()
+  return resultados.flat().filter(item => {
+    if (vistos.has(item.codigo)) return false
+    vistos.add(item.codigo)
+    return true
+  })
+}
+
+// ── Buscar por código específico ─────────────────────────────
+async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync | null> {
+  const tipo = tipoDesdeCodigoExterno(codigo)
+
+  if (tipo === 'COT') {
+    // El buscador no permite buscar por código directamente — q busca en el nombre.
+    // Estrategia: pedir últimos 60 días (todas las páginas) y filtrar por código exacto.
+    try {
+      const tokenRes = await fetch(MP_AUTH_URL, {
+        headers: { 'Accept': 'application/json', 'Origin': 'https://buscador.mercadopublico.cl' },
+        next: { revalidate: 0 },
+      })
+      const token = (await tokenRes.json()).payload.access_token
+
+      const hoy = new Date()
+      const fmt = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'America/Santiago' })
+
+      // Inferir año desde el código (COT25 → 2025, COT26 → 2026)
+      const matchAnio = codigo.match(/COT(\d{2})$/i)
+      const anioInferido = matchAnio ? 2000 + parseInt(matchAnio[1]) : hoy.getFullYear()
+
+      // El buscador no mantiene archivo histórico. Si el código es de un año anterior
+      // al actual, no existe en el índice → retornar null de inmediato.
+      if (anioInferido < hoy.getFullYear()) return null
+
+      // Para el año actual, buscar en los últimos 90 días (rápido y confiable)
+      const dateFrom = new Date(hoy.getTime() - 90 * 86400000)
+      const dateTo = hoy
+
+      const codigoNorm = codigo.trim().toUpperCase()
+      const headers = {
         'Authorization': `Bearer ${token}`,
         'x-api-key': MP_API_KEY,
         'Accept': 'application/json',
         'Origin': 'https://buscador.mercadopublico.cl',
-      },
-      next: { revalidate: 0 },
-    })
+      }
+
+      for (let page = 1; page <= 20; page++) {
+        const params = new URLSearchParams({
+          date_from: fmt(dateFrom), date_to: fmt(dateTo),
+          order_by: 'recent', page_number: String(page),
+        })
+        const res = await fetch(`${MP_SEARCH_URL}?${params}`, { headers, next: { revalidate: 0 } })
+        const json = await res.json()
+        const resultados: Record<string, unknown>[] = json.payload?.resultados ?? []
+        const pageCount: number = json.payload?.pageCount ?? 1
+
+        const r = resultados.find(x => String(x.codigo ?? '').trim().toUpperCase() === codigoNorm)
+        if (r) {
+          return {
+            codigo:            String(r.codigo),
+            nombre:            String(r.nombre ?? ''),
+            descripcion:       null,
+            fecha_publicacion: parseFechaMP(r.fecha_publicacion as string) ?? null,
+            fecha_cierre:      parseFechaMP(r.fecha_cierre as string),
+            organismo:         String(r.organismo ?? ''),
+            monto:             typeof r.monto_disponible_CLP === 'number' ? r.monto_disponible_CLP : null,
+            tipo:              'COT',
+          }
+        }
+        if (page >= pageCount) break
+      }
+    } catch { /* ignorar */ }
+    return null
+  }
+
+  // LE/LP/LR/L1 — API oficial por código
+  if (!ticket) return null
+  try {
+    const res = await fetch(
+      `${MP_API_URL}?ticket=${ticket}&codigo=${encodeURIComponent(codigo)}`,
+      { next: { revalidate: 0 } }
+    )
     const json = await res.json()
-    return { resultados: json.payload?.resultados ?? [], pageCount: json.payload?.pageCount ?? 1 }
-  }
-
-  const primera = await fetchPag(1)
-  let todas = [...primera.resultados]
-  for (let p = 2; p <= Math.min(primera.pageCount, 10); p++) {
-    todas = todas.concat((await fetchPag(p)).resultados)
-  }
-
-  return todas.map((r: Record<string, unknown>) => ({
-    codigo:           String(r.codigo),
-    nombre:           String(r.nombre ?? ''),
-    descripcion:      null,
-    fecha_publicacion: parseFechaMP(r.fecha_publicacion as string) ?? null,
-    fecha_cierre:     parseFechaMP(r.fecha_cierre as string),
-    organismo:        String(r.organismo ?? ''),
-    monto:            typeof r.monto_disponible_CLP === 'number' ? r.monto_disponible_CLP : null,
-    tipo:             'COT' as const,
-  }))
-}
-
-// ── Fetch LE/LP/LR/L1 desde API oficial ─────────────────────
-async function fetchLicitaciones(ticket: string): Promise<ItemSync[]> {
-  const res = await fetch(
-    `${MP_API_URL}?ticket=${ticket}&estado=publicada&region=${REGION_NUBLE}`,
-    { next: { revalidate: 0 } }
-  )
-  const json = await res.json()
-  if (json.Codigo && json.Codigo !== 200) return []
-
-  return (json.Listado ?? []).map((r: Record<string, unknown>) => {
+    const listado: Record<string, unknown>[] = json.Listado ?? []
+    const r = listado[0]
+    if (!r) return null
     const fechas = r.Fechas as Record<string, string> | null
     const comprador = r.Comprador as Record<string, string> | null
     return {
-      codigo:           String(r.CodigoExterno ?? ''),
-      nombre:           String(r.Nombre ?? ''),
-      descripcion:      r.Descripcion ? String(r.Descripcion) : null,
+      codigo:            String(r.CodigoExterno ?? ''),
+      nombre:            String(r.Nombre ?? ''),
+      descripcion:       r.Descripcion ? String(r.Descripcion) : null,
       fecha_publicacion: parseFechaMP(fechas?.FechaPublicacion) ?? null,
-      fecha_cierre:     parseFechaMP(fechas?.FechaCierre),
-      organismo:        String(comprador?.NombreOrganismo ?? comprador?.NombreUnidad ?? ''),
-      monto:            typeof r.MontoEstimado === 'number' ? r.MontoEstimado : null,
-      tipo:             tipoDesdeCodigoExterno(String(r.CodigoExterno ?? '')),
+      fecha_cierre:      parseFechaMP(fechas?.FechaCierre),
+      organismo:         String(comprador?.NombreOrganismo ?? comprador?.NombreUnidad ?? ''),
+      monto:             typeof r.MontoEstimado === 'number' ? r.MontoEstimado : null,
+      tipo:              tipoDesdeCodigoExterno(String(r.CodigoExterno ?? '')),
     }
-  })
+  } catch { return null }
 }
 
 // ── GET /api/sync ────────────────────────────────────────────
@@ -157,8 +272,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Solo administradores' }, { status: 403 })
 
     const url = new URL(req.url)
+    const codigoBuscar = url.searchParams.get('codigo')?.trim()
+    const ticket = process.env.MP_TICKET ?? ''
+
+    // Búsqueda por código único — retorna solo ese resultado
+    if (codigoBuscar) {
+      const item = await fetchPorCodigo(codigoBuscar, ticket)
+      if (!item) return NextResponse.json({ error: 'No encontrada en Mercado Público' }, { status: 404 })
+      // Verificar si ya existe
+      const { data: existe } = await supabase.from('licitaciones').select('id')
+        .eq('org_id', perfil.org_id).eq('codigo_chilecompra', item.codigo).maybeSingle()
+      return NextResponse.json({ item, yaExiste: !!existe })
+    }
+
     const dateTo = url.searchParams.get('date_to') ?? new Date().toISOString().slice(0, 10)
     const incluirAnteriores = url.searchParams.get('incluir_anteriores') === 'true'
+    const regionesParam = url.searchParams.get('regiones')
+    const regiones = regionesParam ? regionesParam.split(',').filter(Boolean) : REGIONES_DEFAULT
 
     // Leer marcas de tiempo separadas para COT y LE/LP
     let ultimaPublicacionCOT: Date | null = null
@@ -180,9 +310,12 @@ export async function GET(req: NextRequest) {
     const toChileDate = (d: Date) =>
       d.toLocaleDateString('en-CA', { timeZone: 'America/Santiago' })
 
-    // dateFrom para query COT — solo usa la marca COT para no saltarse publicaciones
+    // dateFrom para query COT — si el usuario lo especifica explícitamente, usarlo
+    const dateFromParam = url.searchParams.get('date_from')
     let dateFrom: string
-    if (incluirAnteriores) {
+    if (dateFromParam) {
+      dateFrom = dateFromParam
+    } else if (incluirAnteriores) {
       dateFrom = toChileDate(new Date(Date.now() - 30 * 86400000))
     } else if (ultimaPublicacionCOT) {
       dateFrom = toChileDate(ultimaPublicacionCOT)
@@ -190,14 +323,12 @@ export async function GET(req: NextRequest) {
       dateFrom = dateTo
     }
 
-    const ticket = process.env.MP_TICKET ?? ''
-
     // Fetch en paralelo:
     // COT → usa date_from/date_to para filtrar por publicación
     // LE/LP → la API oficial devuelve solo las vigentes, no necesita rango de fechas
     const [cotItems, licItems] = await Promise.all([
-      fetchCOT(dateFrom, dateTo).catch(() => [] as ItemSync[]),
-      ticket ? fetchLicitaciones(ticket).catch(() => [] as ItemSync[]) : Promise.resolve([] as ItemSync[]),
+      fetchCOT(dateFrom, dateTo, regiones).catch(() => [] as ItemSync[]),
+      ticket ? fetchLicitaciones(ticket, regiones).catch(() => [] as ItemSync[]) : Promise.resolve([] as ItemSync[]),
     ])
 
     const todas: ItemSync[] = [...cotItems, ...licItems]

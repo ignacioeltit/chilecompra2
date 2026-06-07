@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowLeft, Loader2, Info } from 'lucide-react'
@@ -18,6 +18,8 @@ const TIPOS_HINT: Record<string, string> = {
 
 export default function NuevaLicitacionPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const codigoParam = searchParams.get('codigo') ?? ''
   const supabase = createClient()
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -31,7 +33,7 @@ export default function NuevaLicitacionPage() {
     formState: { errors },
   } = useForm<LicitacionSchema>({
     resolver: zodResolver(licitacionSchema),
-    defaultValues: { estado: 'sin_definir' },
+    defaultValues: { estado: 'sin_definir', codigo_chilecompra: codigoParam },
   })
 
   const codigoWatch = watch('codigo_chilecompra') ?? ''

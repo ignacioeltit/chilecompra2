@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, List, Calendar, BarChart2,
-  Settings, LogOut, ChevronRight, Upload, RefreshCw, MoreHorizontal
+  Settings, LogOut, Upload, RefreshCw, MoreHorizontal,
+  Building2, X, Search, Command
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils/cn'
@@ -31,21 +32,37 @@ export function Sidebar() {
     router.push('/login')
   }
 
+  const inicial = perfil ? (perfil.nombre ?? perfil.email).charAt(0).toUpperCase() : 'U'
+
   return (
     <>
       {/* ── Sidebar desktop (md+) ── */}
-      <aside className="hidden md:flex w-60 flex-shrink-0 bg-white border-r border-gray-200 flex-col min-h-screen">
+      <aside className="hidden md:flex w-60 flex-shrink-0 bg-slate-900 flex-col min-h-screen">
         {/* Logo */}
-        <div className="px-5 py-5 border-b border-gray-100">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
-              <span className="text-white text-sm font-bold">C</span>
+        <div className="px-5 py-5 border-b border-slate-700/50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0 shadow-md shadow-blue-500/30">
+              <Building2 className="h-4 w-4 text-white" />
             </div>
             <div>
-              <div className="text-sm font-bold text-gray-900 leading-tight">Chilecompra2</div>
-              <div className="text-xs text-gray-400">Licitaciones</div>
+              <div className="text-sm font-bold text-white leading-tight">Chilecompra2</div>
+              <div className="text-xs text-slate-400">Licitaciones públicas</div>
             </div>
           </div>
+        </div>
+
+        {/* Cmd+K búsqueda */}
+        <div className="px-3 py-3 border-b border-slate-700/50">
+          <button
+            onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))}
+            className="flex items-center gap-2 w-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600/50 rounded-lg text-slate-400 text-xs transition-colors"
+          >
+            <Search className="h-3.5 w-3.5" />
+            <span className="flex-1 text-left">Buscar licitación...</span>
+            <span className="flex items-center gap-0.5 text-slate-500">
+              <Command className="h-2.5 w-2.5" />K
+            </span>
+          </button>
         </div>
 
         {/* Navegación */}
@@ -57,53 +74,53 @@ export function Sidebar() {
                 key={href}
                 href={href}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group',
-                  activo ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+                  activo
+                    ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
                 )}
               >
-                <Icon className={cn('h-4 w-4 flex-shrink-0', activo ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-600')} />
+                <Icon className={cn('h-4 w-4 flex-shrink-0', activo ? 'text-blue-400' : 'text-slate-500')} />
                 {label}
-                {activo && <ChevronRight className="ml-auto h-3 w-3 text-blue-400" />}
               </Link>
             )
           })}
 
           {perfil?.rol === 'admin' && (
-            <>
-              <Link href="/config" className={cn('flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group', pathname === '/config' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900')}>
-                <Settings className="h-4 w-4 flex-shrink-0 text-gray-400 group-hover:text-gray-600" />
+            <div className="pt-3 mt-3 border-t border-slate-700/50 space-y-0.5">
+              <p className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase tracking-wider">Admin</p>
+              <Link href="/config" className={cn('flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all', pathname === '/config' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100')}>
+                <Settings className="h-4 w-4 flex-shrink-0 text-slate-500" />
                 Configuración
               </Link>
-              <Link href="/config/importar" className={cn('flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group', pathname === '/config/importar' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900')}>
-                <Upload className="h-4 w-4 flex-shrink-0 text-gray-400 group-hover:text-gray-600" />
+              <Link href="/config/importar" className={cn('flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all', pathname === '/config/importar' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100')}>
+                <Upload className="h-4 w-4 flex-shrink-0 text-slate-500" />
                 Importar Excel
               </Link>
-              <Link href="/config/sincronizar" className={cn('flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group', pathname === '/config/sincronizar' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900')}>
-                <RefreshCw className="h-4 w-4 flex-shrink-0 text-gray-400 group-hover:text-gray-600" />
+              <Link href="/config/sincronizar" className={cn('flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all', pathname === '/config/sincronizar' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100')}>
+                <RefreshCw className="h-4 w-4 flex-shrink-0 text-slate-500" />
                 Mercado Público
               </Link>
-            </>
+            </div>
           )}
         </nav>
 
         {/* Footer usuario */}
-        <div className="px-3 py-4 border-t border-gray-100">
+        <div className="px-3 py-4 border-t border-slate-700/50">
           {perfil && (
-            <div className="flex items-center gap-3 px-3 py-2 mb-1">
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-700 text-xs font-semibold uppercase">
-                  {(perfil.nombre ?? perfil.email).charAt(0)}
-                </span>
+            <div className="flex items-center gap-3 px-3 py-2 mb-1 rounded-lg bg-slate-800/50">
+              <div className="w-8 h-8 rounded-full bg-blue-500/20 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
+                <span className="text-blue-400 text-xs font-bold">{inicial}</span>
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-gray-800 truncate">{perfil.nombre ?? perfil.email}</div>
-                <div className="text-xs text-gray-400 capitalize">{perfil.rol}</div>
+                <div className="text-xs font-medium text-slate-200 truncate">{perfil.nombre ?? perfil.email}</div>
+                <div className="text-xs text-slate-500 capitalize">{perfil.rol}</div>
               </div>
             </div>
           )}
           <button
             onClick={cerrarSesion}
-            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-colors"
           >
             <LogOut className="h-4 w-4" />
             Cerrar sesión
@@ -112,76 +129,105 @@ export function Sidebar() {
       </aside>
 
       {/* ── Bottom nav móvil (< md) ── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 flex items-stretch">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur border-t border-gray-200 flex items-stretch safe-bottom">
         {NAV.map(({ href, label, icon: Icon }) => {
           const activo = pathname === href || pathname.startsWith(href + '/')
           return (
             <Link
               key={href}
               href={href}
-              className={cn(
-                'flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium transition-colors',
-                activo ? 'text-blue-600' : 'text-gray-400'
-              )}
+              className="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 relative"
             >
-              <Icon className={cn('h-5 w-5', activo ? 'text-blue-600' : 'text-gray-400')} />
-              {label}
+              <div className={cn(
+                'flex items-center justify-center w-10 h-6 rounded-full transition-all',
+                activo ? 'bg-blue-100' : ''
+              )}>
+                <Icon className={cn('h-5 w-5', activo ? 'text-blue-600' : 'text-gray-400')} />
+              </div>
+              <span className={cn('text-[10px] font-medium', activo ? 'text-blue-600' : 'text-gray-400')}>
+                {label}
+              </span>
             </Link>
           )
         })}
 
-        {/* Botón "Más" para admin */}
+        {/* Botón "Más" */}
         <button
           onClick={() => setMenuAbierto(v => !v)}
-          className={cn(
-            'flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium transition-colors',
-            menuAbierto ? 'text-blue-600' : 'text-gray-400'
-          )}
+          className="flex-1 flex flex-col items-center justify-center py-2 gap-0.5"
         >
-          <MoreHorizontal className={cn('h-5 w-5', menuAbierto ? 'text-blue-600' : 'text-gray-400')} />
-          Más
+          <div className={cn(
+            'flex items-center justify-center w-10 h-6 rounded-full transition-all',
+            menuAbierto ? 'bg-blue-100' : ''
+          )}>
+            <MoreHorizontal className={cn('h-5 w-5', menuAbierto ? 'text-blue-600' : 'text-gray-400')} />
+          </div>
+          <span className={cn('text-[10px] font-medium', menuAbierto ? 'text-blue-600' : 'text-gray-400')}>
+            Más
+          </span>
         </button>
       </nav>
 
       {/* Panel "Más" en móvil */}
       {menuAbierto && (
-        <div className="md:hidden fixed inset-0 z-40" onClick={() => setMenuAbierto(false)}>
+        <div className="md:hidden fixed inset-0 z-40 bg-black/30 backdrop-blur-sm" onClick={() => setMenuAbierto(false)}>
           <div
-            className="absolute bottom-16 left-0 right-0 bg-white border-t border-gray-200 shadow-lg rounded-t-2xl px-4 py-4 space-y-1"
+            className="absolute bottom-16 left-0 right-0 bg-white rounded-t-3xl shadow-2xl px-4 pt-2 pb-6"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center gap-3 px-3 py-2 mb-2">
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-700 text-xs font-semibold uppercase">
-                  {perfil ? (perfil.nombre ?? perfil.email).charAt(0) : 'U'}
-                </span>
+            {/* Handle */}
+            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4" />
+
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center">
+                  <span className="text-blue-700 text-sm font-bold">{inicial}</span>
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">{perfil?.nombre ?? perfil?.email}</div>
+                  <div className="text-xs text-gray-400 capitalize">{perfil?.rol}</div>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-gray-800 truncate">{perfil?.nombre ?? perfil?.email}</div>
-                <div className="text-xs text-gray-400 capitalize">{perfil?.rol}</div>
-              </div>
+              <button onClick={() => setMenuAbierto(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100">
+                <X className="h-4 w-4" />
+              </button>
             </div>
 
             {perfil?.rol === 'admin' && (
-              <>
-                <Link href="/config" onClick={() => setMenuAbierto(false)} className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-gray-50">
-                  <Settings className="h-5 w-5 text-gray-400" /> Configuración
+              <div className="space-y-1 mb-3">
+                <p className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Administración</p>
+                <Link href="/config" onClick={() => setMenuAbierto(false)} className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-gray-50 font-medium">
+                  <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+                    <Settings className="h-4 w-4 text-gray-600" />
+                  </div>
+                  Configuración
                 </Link>
-                <Link href="/config/importar" onClick={() => setMenuAbierto(false)} className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-gray-50">
-                  <Upload className="h-5 w-5 text-gray-400" /> Importar Excel
+                <Link href="/config/importar" onClick={() => setMenuAbierto(false)} className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-gray-50 font-medium">
+                  <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+                    <Upload className="h-4 w-4 text-gray-600" />
+                  </div>
+                  Importar Excel
                 </Link>
-                <Link href="/config/sincronizar" onClick={() => setMenuAbierto(false)} className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-gray-50">
-                  <RefreshCw className="h-5 w-5 text-gray-400" /> Mercado Público
+                <Link href="/config/sincronizar" onClick={() => setMenuAbierto(false)} className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-gray-50 font-medium">
+                  <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+                    <RefreshCw className="h-4 w-4 text-gray-600" />
+                  </div>
+                  Mercado Público
                 </Link>
-              </>
+              </div>
             )}
 
-            <button
-              onClick={cerrarSesion}
-              className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-sm text-red-600 hover:bg-red-50"
-            >
-              <LogOut className="h-5 w-5" /> Cerrar sesión
-            </button>
+            <div className="pt-3 border-t border-gray-100">
+              <button
+                onClick={cerrarSesion}
+                className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-sm text-red-600 hover:bg-red-50 font-medium"
+              >
+                <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center">
+                  <LogOut className="h-4 w-4 text-red-500" />
+                </div>
+                Cerrar sesión
+              </button>
+            </div>
           </div>
         </div>
       )}
