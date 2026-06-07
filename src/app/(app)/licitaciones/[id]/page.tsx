@@ -22,13 +22,14 @@ export default function DetalleLicitacionPage() {
   const [resultadoSeleccionado, setResultadoSeleccionado] = useState<ResultadoLicitacion | ''>('')
   const [auditoria, setAuditoria] = useState<any[]>([])
   const [adjuntos, setAdjuntos] = useState<any[]>([])
-  const [menuNoParticipe, setMenuNoParticipe] = useState(false)
+  // 'desktop' | 'sidebar' | 'fab' | null — un solo menú abierto a la vez
+  const [menuNoParticipe, setMenuNoParticipe] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!menuNoParticipe) return
     const cerrar = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuNoParticipe(false)
+        setMenuNoParticipe(null)
       }
     }
     document.addEventListener('mousedown', cerrar)
@@ -205,7 +206,7 @@ export default function DetalleLicitacionPage() {
             {!lic.resultado && lic.estado !== 'cancelada' && lic.estado !== 'no_participe' && (
               <div className="relative" ref={menuRef}>
                 <button
-                  onClick={() => setMenuNoParticipe(v => !v)}
+                  onClick={() => setMenuNoParticipe(v => v === 'header' ? null : 'header')}
                   disabled={guardando === 'no_participe'}
                   className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 disabled:opacity-50 border border-gray-300"
                 >
@@ -213,7 +214,7 @@ export default function DetalleLicitacionPage() {
                   No participé
                   <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
                 </button>
-                {menuNoParticipe && (
+                {menuNoParticipe === 'header' && (
                   <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1">
                     {MOTIVOS_NO_PARTICIPE.map(motivo => (
                       <button
@@ -451,7 +452,7 @@ export default function DetalleLicitacionPage() {
               {!lic.resultado && lic.estado !== 'cancelada' && lic.estado !== 'no_participe' && (
                 <div className="relative" ref={menuRef}>
                   <button
-                    onClick={() => setMenuNoParticipe(v => !v)}
+                    onClick={() => setMenuNoParticipe(v => v === 'sidebar' ? null : 'sidebar')}
                     disabled={guardando === 'no_participe'}
                     className="flex items-center gap-2 w-full px-3 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-xl text-sm font-medium border border-gray-200 transition-colors"
                   >
@@ -459,7 +460,7 @@ export default function DetalleLicitacionPage() {
                     No participé
                     <ChevronDown className="h-3.5 w-3.5 text-gray-400 ml-auto" />
                   </button>
-                  {menuNoParticipe && (
+                  {menuNoParticipe === 'sidebar' && (
                     <div className="absolute right-0 top-full mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl z-20 py-1">
                       {MOTIVOS_NO_PARTICIPE.map(motivo => (
                         <button key={motivo} onClick={() => handleNoParticipe(motivo)} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">{motivo}</button>
@@ -539,13 +540,13 @@ export default function DetalleLicitacionPage() {
             {lic.estado !== 'no_participe' && (
               <div className="relative" ref={menuRef}>
                 <button
-                  onClick={() => setMenuNoParticipe(v => !v)}
+                  onClick={() => setMenuNoParticipe(v => v === 'fab' ? null : 'fab')}
                   disabled={guardando === 'no_participe'}
                   className="flex items-center justify-center gap-1 px-3 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl text-sm font-bold border border-gray-200 transition-colors disabled:opacity-50"
                 >
                   <XCircle className="h-4 w-4" />
                 </button>
-                {menuNoParticipe && (
+                {menuNoParticipe === 'fab' && (
                   <div className="absolute bottom-full right-0 mb-2 w-56 bg-white border border-gray-200 rounded-2xl shadow-2xl z-20 py-2">
                     <p className="px-4 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">No participé porque...</p>
                     {MOTIVOS_NO_PARTICIPE.map(motivo => (
