@@ -31,6 +31,9 @@ export default function DashboardPage() {
     ? licitaciones.filter(l => filtroCategoria.includes(l.categoria_alerta_calc))
     : licitaciones
 
+  // Antes de cualquier return condicional — Rules of Hooks
+  useSyncLicitaciones(licitaciones)
+
   if (loadingPerfil) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -51,8 +54,6 @@ export default function DashboardPage() {
       </div>
     )
   }
-
-  useSyncLicitaciones(licitaciones)
 
   const nombre = perfil?.nombre?.split(' ')[0] ?? 'Equipo'
 
