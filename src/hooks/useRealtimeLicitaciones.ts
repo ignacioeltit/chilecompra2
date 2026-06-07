@@ -57,7 +57,19 @@ export function useRealtimeLicitaciones(orgId: string) {
       )
       .subscribe()
 
-    return () => { void supabase.removeChannel(channel) }
+    // Recargar cuando el usuario vuelve a la pestaña o navega de vuelta.
+    // Next.js App Router puede restaurar páginas desde caché sin remontar el
+    // componente, así que el useEffect no volvería a correr. Este listener
+    // garantiza datos frescos al volver de la página de detalle.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void cargar()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      void supabase.removeChannel(channel)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [orgId, cargar])
 
   return { licitaciones, loading, error, recargar: () => { if (orgId) void cargar() } }
