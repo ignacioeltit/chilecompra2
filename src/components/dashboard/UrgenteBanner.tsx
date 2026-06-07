@@ -11,9 +11,16 @@ interface UrgenteBannerProps {
 }
 
 export function UrgenteBanner({ licitaciones }: UrgenteBannerProps) {
+  const ESTADOS_EXCLUIDOS_ALERTA = ['no_participe', 'cancelada', 'revisado']
+  const CATEGORIAS_EXCLUIDAS_ALERTA = ['resultado_registrado', 'revisado', 'ok', 'cerrada_sin_cotizar']
+
   const urgentes = licitaciones
-    .filter(l => l.horas_restantes > 0 && l.horas_restantes <= 48 &&
-      !['resultado_registrado', 'revisado', 'ok', 'no_participe', 'cancelada'].includes(l.categoria_alerta_calc))
+    .filter(l =>
+      l.horas_restantes > 0 &&
+      l.horas_restantes <= 48 &&
+      !ESTADOS_EXCLUIDOS_ALERTA.includes(l.estado) &&
+      !CATEGORIAS_EXCLUIDAS_ALERTA.includes(l.categoria_alerta_calc)
+    )
     .sort((a, b) => a.horas_restantes - b.horas_restantes)
 
   if (urgentes.length === 0) return null
