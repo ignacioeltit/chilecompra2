@@ -42,7 +42,12 @@ export function useRealtimeLicitaciones(orgId: string) {
   }, [orgId])
 
   useEffect(() => {
+    // Si otra página marcó que hay cambios pendientes (ej: detalle actualizó estado),
+    // siempre recargar aunque el componente se haya restaurado desde router cache.
     void cargar()
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('dashboard_stale')
+    }
 
     if (!orgId) return
 
@@ -57,18 +62,31 @@ export function useRealtimeLicitaciones(orgId: string) {
       )
       .subscribe()
 
-    // Recargar cuando el usuario vuelve a la pestaña o navega de vuelta.
-    // Next.js App Router puede restaurar páginas desde caché sin remontar el
-    // componente, así que el useEffect no volvería a correr. Este listener
-    // garantiza datos frescos al volver de la página de detalle.
+    // Recargar cuando el usuario vuelve a la pestaña (visibilitychange)
+    // o cuando el browser restaura la página desde bfcache / router cache
+    // de Next.js (pageshow). Sin esto, navegar de vuelta al dashboard
+    // puede mostrar datos obsoletos porque el componente no remonta.
     const onVisible = () => {
       if (document.visibilityState === 'visible') void cargar()
     }
+    const onPageShow = (e: PageTransitionEvent) => {
+      // persisted=true → página restaurada desde caché (bfcache / router cache)
+      // persisted=false → carga normal (useEffect ya llamó cargar() al montar)
+      if (e.persisted) void cargar()
+    }
+    // Señal desde otras páginas (ej: detalle guardó un cambio)
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'dashboard_stale') void cargar()
+    }
     document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('pageshow', onPageShow)
+    window.addEventListener('storage', onStorage)
 
     return () => {
       void supabase.removeChannel(channel)
       document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener('storage', onStorage)
     }
   }, [orgId, cargar])
 

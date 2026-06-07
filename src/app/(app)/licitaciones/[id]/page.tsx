@@ -78,6 +78,7 @@ export default function DetalleLicitacionPage() {
     await marcarEnviada(id)
     await cargar()
     setGuardando(null)
+    localStorage.setItem('dashboard_stale', '1')
     router.refresh()
   }
 
@@ -87,6 +88,7 @@ export default function DetalleLicitacionPage() {
     await registrarResultado(id, resultadoSeleccionado as ResultadoLicitacion)
     await cargar()
     setGuardando(null)
+    localStorage.setItem('dashboard_stale', '1')
     router.refresh()
   }
 
@@ -110,7 +112,7 @@ export default function DetalleLicitacionPage() {
     await actualizarLicitacion(id, { estado: 'no_participe', notas: nuevaNota } as any)
     await cargar()
     setGuardando(null)
-    // Invalida el router cache para que el dashboard muestre datos frescos al volver
+    localStorage.setItem('dashboard_stale', '1')
     router.refresh()
   }
 
@@ -119,6 +121,7 @@ export default function DetalleLicitacionPage() {
     await actualizarLicitacion(id, { [campo]: valor } as any)
     await cargar()
     setGuardando(null)
+    localStorage.setItem('dashboard_stale', '1')
     router.refresh()
   }
 
