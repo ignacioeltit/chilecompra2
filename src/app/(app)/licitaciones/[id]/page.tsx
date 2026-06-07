@@ -99,7 +99,7 @@ export default function DetalleLicitacionPage() {
   ]
 
   async function handleNoParticipe(motivo: string) {
-    setMenuNoParticipe(false)
+    setMenuNoParticipe(null)
     setGuardando('no_participe')
     const notaActual = lic?.notas ?? ''
     const nuevaNota = notaActual
