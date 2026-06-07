@@ -432,23 +432,42 @@ export async function POST(req: NextRequest) {
         instId = nueva?.id ?? null
       }
 
-      const { error } = await supabase.from('licitaciones').upsert({
+      // Campos de metadatos que siempre se pueden actualizar sin afectar
+      // el trabajo del usuario (nombre puede cambiar, fechas también).
+      const metadatos = {
+        nombre:            item.nombre,
+        descripcion:       item.descripcion ?? null,
+        fecha_cierre_1:    item.fecha_cierre ?? new Date(Date.now() + 7 * 86400000).toISOString(),
+        fecha_publicacion: item.fecha_publicacion,
+        institucion_id:    instId,
+        institucion,
+        monto_clp:         item.monto ?? null,
+      }
+
+      // 1. Intentar INSERT solo para licitaciones nuevas (ignorar si ya existe).
+      //    Esto preserva estado/resultado que el usuario haya establecido.
+      const { error: insertError } = await supabase.from('licitaciones').insert({
+        ...metadatos,
         org_id:             perfil.org_id,
         codigo_chilecompra: item.codigo,
-        nombre:             item.nombre,
-        descripcion:        item.descripcion ?? null,
-        fecha_cierre_1:     item.fecha_cierre ?? new Date(Date.now() + 7 * 86400000).toISOString(),
-        fecha_publicacion:  item.fecha_publicacion,
         estado:             'sin_definir',
         resultado:          null,
-        institucion_id:     instId,
-        institucion,
-        monto_clp:          item.monto ?? null,
         creado_por:         user.id,
-      }, { onConflict: 'org_id,codigo_chilecompra' })
+      })
 
-      if (error) errores.push(`${item.codigo}: ${error.message}`)
-      else importados++
+      if (insertError && insertError.code === '23505') {
+        // Ya existe → actualizar solo metadatos, NUNCA estado ni resultado
+        const { error: updateError } = await supabase.from('licitaciones')
+          .update(metadatos)
+          .eq('org_id', perfil.org_id)
+          .eq('codigo_chilecompra', item.codigo)
+        const error = updateError
+        if (error) errores.push(`${item.codigo}: ${error.message}`)
+        else importados++
+      } else {
+        if (insertError) errores.push(`${item.codigo}: ${insertError.message}`)
+        else importados++
+      }
     }
 
     return NextResponse.json({ importados, errores })
