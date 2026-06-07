@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowLeft, Loader2, Info } from 'lucide-react'
@@ -16,7 +17,7 @@ const TIPOS_HINT: Record<string, string> = {
   LP:  'Licitación de mayor cuantía — sobre 1.000 UTM',
 }
 
-export default function NuevaLicitacionPage() {
+function NuevaLicitacionForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const codigoParam = searchParams.get('codigo') ?? ''
@@ -274,5 +275,13 @@ export default function NuevaLicitacionPage() {
         </form>
       </div>
     </div>
+  )
+}
+
+export default function NuevaLicitacionPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>}>
+      <NuevaLicitacionForm />
+    </Suspense>
   )
 }
