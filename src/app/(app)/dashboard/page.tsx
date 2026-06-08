@@ -11,7 +11,6 @@ import { TablaPrioritaria } from '@/components/dashboard/TablaPrioritaria'
 import { GraficoMensual } from '@/components/dashboard/GraficoMensual'
 import { TopInstituciones } from '@/components/dashboard/TopInstituciones'
 import { GestionFinanciera } from '@/components/dashboard/GestionFinanciera'
-import { UrgenteBanner } from '@/components/dashboard/UrgenteBanner'
 import { useSyncLicitaciones } from '@/hooks/useSyncLicitaciones'
 
 export default function DashboardPage() {
@@ -116,9 +115,6 @@ export default function DashboardPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6 space-y-5">
-        {/* Banner urgente */}
-        {!loading && <UrgenteBanner licitaciones={licitaciones} />}
-
         {/* Filtro activo badge */}
         {(filtroCategoria || filtroGanadas) && (
           <div className="flex items-center gap-2 text-sm bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5">
