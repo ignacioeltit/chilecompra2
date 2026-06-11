@@ -1,9 +1,10 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { type LicitacionConAlerta, type EstadoOC, ESTADOS_OC } from '@/types'
 import { formatCLP } from '@/lib/utils/format'
-import { CheckCircle, Clock, AlertCircle, DollarSign } from 'lucide-react'
+import { CheckCircle, Clock, AlertCircle, DollarSign, ChevronDown } from 'lucide-react'
 
 interface Props {
   licitaciones: LicitacionConAlerta[]
@@ -12,6 +13,7 @@ interface Props {
 const PASOS: EstadoOC[] = ['emitida', 'aceptada', 'facturada', 'pagada']
 
 export function GestionFinanciera({ licitaciones }: Props) {
+  const [mostrarPagadas, setMostrarPagadas] = useState(false)
   const ganadas = licitaciones.filter(l => l.resultado === 'ganada')
 
   if (ganadas.length === 0) return null
@@ -102,7 +104,7 @@ export function GestionFinanciera({ licitaciones }: Props) {
             <tbody className="divide-y divide-gray-50">
               {pendienteTabla.map(l => {
                 const idxOC = l.estado_oc ? PASOS.indexOf(l.estado_oc) : -1
-                const isPendFactura = idxOC < 2 // antes de facturada
+                const isPendFactura = idxOC < 2
                 return (
                   <tr key={l.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3">
@@ -121,7 +123,6 @@ export function GestionFinanciera({ licitaciones }: Props) {
                     <td className="px-4 py-3">
                       {l.estado_oc ? (
                         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                          l.estado_oc === 'pagada'    ? 'bg-green-100 text-green-700' :
                           l.estado_oc === 'facturada' ? 'bg-blue-100 text-blue-700' :
                           l.estado_oc === 'aceptada'  ? 'bg-purple-100 text-purple-700' :
                           'bg-amber-100 text-amber-700'
@@ -146,6 +147,70 @@ export function GestionFinanciera({ licitaciones }: Props) {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Tabla de facturas pagadas */}
+      {pagadas.length > 0 && (
+        <div className="bg-white rounded-xl border border-green-200 overflow-hidden mt-3">
+          <button
+            onClick={() => setMostrarPagadas(v => !v)}
+            className="w-full px-4 py-3 border-b border-green-100 flex items-center justify-between hover:bg-green-50/50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <span className="text-sm font-medium text-green-800">
+                Facturas pagadas ({pagadas.length})
+              </span>
+              <span className="text-sm font-bold text-green-700">{formatCLP(totalCobrado)}</span>
+            </div>
+            <ChevronDown className={`h-4 w-4 text-green-600 transition-transform ${mostrarPagadas ? 'rotate-180' : ''}`} />
+          </button>
+
+          {mostrarPagadas && (
+            <table className="w-full text-sm">
+              <thead className="bg-green-50/50 border-b border-green-100">
+                <tr>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Código</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Nombre</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Monto</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">N° Factura</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Fecha pago</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {pagadas.map(l => (
+                  <tr key={l.id} className="hover:bg-green-50/30 transition-colors">
+                    <td className="px-4 py-3">
+                      <Link href={`/licitaciones/${l.id}`} className="font-mono text-blue-600 hover:underline text-xs whitespace-nowrap">
+                        {l.codigo_chilecompra}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 max-w-[220px]">
+                      <Link href={`/licitaciones/${l.id}`} className="hover:text-blue-600 line-clamp-1 text-gray-800">
+                        {l.nombre}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
+                      {l.monto_clp ? formatCLP(l.monto_clp) : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {l.numero_factura
+                        ? <span className="text-xs font-mono font-semibold text-green-700">#{l.numero_factura}</span>
+                        : <span className="text-xs text-gray-400">—</span>
+                      }
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">
+                      {l.fecha_pago
+                        ? new Date(l.fecha_pago).toLocaleDateString('es-CL')
+                        : <span className="text-gray-400">—</span>
+                      }
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </div>
