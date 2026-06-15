@@ -1,5 +1,16 @@
 import { type Licitacion, type CategoriaAlerta } from '@/types'
 
+// Devuelve el inicio del último día hábil ANTES del cierre.
+// Si cierra lunes → viernes. Sábado/domingo → viernes anterior.
+function ultimoDiaHabilAntes(fechaCierre: Date): Date {
+  const dow = fechaCierre.getDay() // 0=dom, 1=lun, ..., 6=sab
+  const d = new Date(fechaCierre)
+  d.setHours(0, 0, 0, 0)
+  const diasAtras = dow === 1 ? 3 : dow === 0 ? 2 : 1 // lun→3, dom→2, resto→1
+  d.setDate(d.getDate() - diasAtras)
+  return d
+}
+
 /**
  * Calcula la categoría de alerta para una licitación en el cliente.
  * Misma lógica que la vista v_licitaciones_con_alerta en Postgres.
@@ -39,8 +50,9 @@ export function calcularCategoriaAlerta(
   if (cierre < ahora && !['enviada', 'cancelada', 'no_participe'].includes(estado))
     return 'cerrada_sin_cotizar'
 
-  // 8. Urgente ≤24h
-  if (horasRestantes <= 24) return 'urgente'
+  // 8. Urgente — ya es el último día hábil antes del cierre
+  // (si cierra el lunes, es urgente desde el viernes)
+  if (ahora >= ultimoDiaHabilAntes(cierre)) return 'urgente'
 
   // 9. Pronto ≤72h
   if (horasRestantes <= 72) return 'pronto'
