@@ -450,7 +450,6 @@ LANGUAGE sql STABLE AS $$
          WHEN v.categoria_alerta_calc = 'pronto' THEN 1
          WHEN v.categoria_alerta_calc = 'revisar_resultado' THEN 2
          WHEN v.categoria_alerta_calc = 'pendiente_enviar' THEN 3
-         WHEN v.categoria_alerta_calc = 'enviar_lunes' THEN 4
          WHEN v.categoria_alerta_calc = 'pendiente_revision' THEN 5
          WHEN v.categoria_alerta_calc = 'cotizada' THEN 6
          WHEN v.categoria_alerta_calc = 'sin_definir' THEN 7

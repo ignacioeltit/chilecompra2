@@ -205,32 +205,20 @@ export async function POST(req: NextRequest) {
         const cierre2   = COL_CIERRE2 ? parsearFecha(celda(row, COL_CIERRE2)) : null
         const publi     = COL_PUBLI  ? parsearFecha(celda(row, COL_PUBLI)) : null
 
-        // Buscar/crear institución
+        // Buscar/crear institución con upsert idempotente
         let instId: string | null = null
-        const { data: instExistente, error: instError } = await supabase
-          .from('instituciones').select('id')
-          .eq('org_id', perfil.org_id).ilike('nombre', institucion).single()
+        const { data: inst, error: instError } = await supabase
+          .from('instituciones')
+          .upsert({ org_id: perfil.org_id, nombre: institucion }, { onConflict: 'org_id,nombre' })
+          .select('id')
+          .maybeSingle()
 
         if (instError) {
-          // Registrar error de búsqueda de institución pero seguir intentando
-          console.log('[import] Error buscando institución en fila', rowNum, instError.message)
-          await writeLogFile(logPath, { event: 'inst_search_error', row: rowNum, error: instError.message })
-          resultados.detalles.push({ row: rowNum, issue: 'inst_search_error', error: instError.message })
+          console.log('[import] Error upsert institución en fila', rowNum, instError.message)
+          await writeLogFile(logPath, { event: 'inst_error', row: rowNum, error: instError.message })
+          resultados.detalles.push({ row: rowNum, issue: 'inst_error', error: instError.message })
         }
-
-        if (instExistente) {
-          instId = instExistente.id
-        } else {
-          const { data: nuevaInst, error: createInstError } = await supabase
-            .from('instituciones').insert({ org_id: perfil.org_id, nombre: institucion })
-            .select('id').single()
-          if (createInstError) {
-            console.log('[import] Error creando institución en fila', rowNum, createInstError.message)
-            await writeLogFile(logPath, { event: 'inst_create_error', row: rowNum, error: createInstError.message })
-            resultados.detalles.push({ row: rowNum, issue: 'inst_create_error', error: createInstError.message })
-          }
-          instId = nuevaInst?.id ?? null
-        }
+        instId = inst?.id ?? null
 
         const valuesForInsert = {
           org_id: perfil.org_id,
@@ -279,7 +267,7 @@ export async function POST(req: NextRequest) {
         .from('licitaciones')
         .select('id, codigo_chilecompra, nombre, fecha_cierre_1, institucion')
         .eq('org_id', perfil.org_id)
-        .order('created_at', { ascending: false })
+        .order('creado_en', { ascending: false })
         .limit(10)
       recientes = last ?? []
     } catch (e) {
