@@ -115,6 +115,7 @@ export default function DetalleLicitacionPage() {
     'Plazos muy cortos',
     'Requiere garantía/boleta',
     'Exigen patente comercial',
+    'Información insuficiente',
     'Otro',
   ]
 
