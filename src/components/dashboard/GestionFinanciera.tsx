@@ -35,7 +35,6 @@ export function GestionFinanciera({ licitaciones }: Props) {
       const ord: Record<string, number> = { facturada: 0, aceptada: 1, emitida: 2, '': 3 }
       return (ord[a.estado_oc ?? ''] ?? 3) - (ord[b.estado_oc ?? ''] ?? 3)
     })
-    .slice(0, 8)
 
   return (
     <div>
