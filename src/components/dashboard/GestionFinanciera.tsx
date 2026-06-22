@@ -4,13 +4,21 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { type LicitacionConAlerta, type EstadoOC, ESTADOS_OC } from '@/types'
 import { formatCLP } from '@/lib/utils/format'
-import { CheckCircle, Clock, AlertCircle, DollarSign, ChevronDown } from 'lucide-react'
+import { CheckCircle, Clock, AlertCircle, DollarSign, ChevronDown, XCircle } from 'lucide-react'
 
 interface Props {
   licitaciones: LicitacionConAlerta[]
 }
 
 const PASOS: EstadoOC[] = ['emitida', 'aceptada', 'facturada', 'pagada']
+
+function infoCobro(l: LicitacionConAlerta): { fechaVence: Date | null; diasRestantes: number | null } {
+  if (l.estado_oc !== 'facturada' || !l.fecha_emision_factura) return { fechaVence: null, diasRestantes: null }
+  const fechaVence = new Date(l.fecha_emision_factura)
+  fechaVence.setDate(fechaVence.getDate() + 30)
+  const diasRestantes = Math.ceil((fechaVence.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+  return { fechaVence, diasRestantes }
+}
 
 export function GestionFinanciera({ licitaciones }: Props) {
   const [mostrarPagadas, setMostrarPagadas] = useState(false)
@@ -29,6 +37,11 @@ export function GestionFinanciera({ licitaciones }: Props) {
   const totalPendiente = pendienteCobro.reduce((s, l) => s + (l.monto_clp ?? 0), 0)
   const totalCobrado   = pagadas.reduce((s, l) => s + (l.monto_clp ?? 0), 0)
 
+  const facturasVencidas = facturadas.filter(l => {
+    const { diasRestantes } = infoCobro(l)
+    return diasRestantes !== null && diasRestantes < 0
+  })
+
   // Tabla: ganadas con acción pendiente (no pagadas), ordenadas por prioridad de estado
   const pendienteTabla = pendienteCobro
     .sort((a, b) => {
@@ -39,6 +52,18 @@ export function GestionFinanciera({ licitaciones }: Props) {
   return (
     <div>
       <h2 className="text-base font-semibold text-gray-800 mb-3">Gestión financiera</h2>
+
+      {/* Alerta facturas vencidas */}
+      {facturasVencidas.length > 0 && (
+        <div className="mb-3 flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+          <XCircle className="h-4 w-4 shrink-0" />
+          <span>
+            <span className="font-semibold">{facturasVencidas.length} factura{facturasVencidas.length !== 1 ? 's' : ''} vencida{facturasVencidas.length !== 1 ? 's' : ''}</span>
+            {' '}— el plazo de 30 días ya se cumplió sin recibir pago.{' '}
+            <span className="font-semibold">{formatCLP(facturasVencidas.reduce((s, l) => s + (l.monto_clp ?? 0), 0))}</span> pendientes.
+          </span>
+        </div>
+      )}
 
       {/* Cards resumen */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
@@ -98,14 +123,18 @@ export function GestionFinanciera({ licitaciones }: Props) {
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Monto</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Estado OC</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Factura</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Cobro estimado</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {pendienteTabla.map(l => {
                 const idxOC = l.estado_oc ? PASOS.indexOf(l.estado_oc) : -1
                 const isPendFactura = idxOC < 2
+                const { fechaVence, diasRestantes } = infoCobro(l)
+                const vencido = diasRestantes !== null && diasRestantes < 0
+                const proximoVencer = diasRestantes !== null && diasRestantes >= 0 && diasRestantes <= 7
                 return (
-                  <tr key={l.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={l.id} className={`hover:bg-gray-50 transition-colors ${vencido ? 'bg-red-50' : ''}`}>
                     <td className="px-4 py-3">
                       <Link href={`/licitaciones/${l.id}`} className="font-mono text-blue-600 hover:underline text-xs whitespace-nowrap">
                         {l.codigo_chilecompra}
@@ -139,6 +168,24 @@ export function GestionFinanciera({ licitaciones }: Props) {
                         <span className="text-xs text-amber-600 font-medium">Pendiente</span>
                       ) : (
                         <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {fechaVence ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className={`text-xs font-medium ${vencido ? 'text-red-600' : proximoVencer ? 'text-amber-600' : 'text-gray-700'}`}>
+                            {fechaVence.toLocaleDateString('es-CL')}
+                          </span>
+                          <span className={`text-xs ${vencido ? 'text-red-500 font-semibold' : proximoVencer ? 'text-amber-500' : 'text-gray-400'}`}>
+                            {vencido
+                              ? `⚠ Vencida hace ${Math.abs(diasRestantes!)} día${Math.abs(diasRestantes!) !== 1 ? 's' : ''}`
+                              : diasRestantes === 0
+                              ? '⚡ Vence hoy'
+                              : `${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}`}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
                       )}
                     </td>
                   </tr>
