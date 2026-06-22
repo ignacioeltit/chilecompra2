@@ -11,18 +11,19 @@ import { createClient } from '@/lib/supabase/client'
 
 interface TablaPrioritariaProps {
   licitaciones: LicitacionConAlerta[]
+  mostrarFinalizadas?: boolean
 }
 
 const CATEGORIAS_FINALES = new Set(['resultado_registrado', 'revisado', 'ok'])
 
-export function TablaPrioritaria({ licitaciones }: TablaPrioritariaProps) {
+export function TablaPrioritaria({ licitaciones, mostrarFinalizadas = false }: TablaPrioritariaProps) {
   const [editandoNota, setEditandoNota] = useState<string | null>(null)
   const [textoNota, setTextoNota] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [errorNota, setErrorNota] = useState<string | null>(null)
 
   const top10 = [...licitaciones]
-    .filter(l => !CATEGORIAS_FINALES.has(l.categoria_alerta_calc))
+    .filter(l => mostrarFinalizadas || !CATEGORIAS_FINALES.has(l.categoria_alerta_calc))
     .sort((a, b) => a.horas_restantes - b.horas_restantes)
     .slice(0, 10)
 
