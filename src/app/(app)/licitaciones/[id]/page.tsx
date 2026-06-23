@@ -380,7 +380,23 @@ export default function DetalleLicitacionPage() {
             </div>
             <div className="divide-y divide-gray-50">
               <CampoInline label="Estado" valor={ESTADOS_LICITACION[lic.estado]} />
-              <CampoInline label="Resultado" valor={lic.resultado ? RESULTADOS[lic.resultado] : '—'} />
+              <div className="flex items-center justify-between px-5 py-3">
+                <span className="text-xs font-medium text-gray-500 w-32 shrink-0">Resultado</span>
+                <div className="flex items-center gap-2 flex-1 justify-end">
+                  <select
+                    value={lic.resultado ?? ''}
+                    onChange={e => handleCampoInline('resultado', e.target.value || null)}
+                    disabled={guardando === 'resultado'}
+                    className="text-sm text-gray-800 bg-transparent border border-gray-200 rounded-lg px-2 py-1 hover:border-gray-300 focus:outline-none focus:border-blue-400 cursor-pointer"
+                  >
+                    <option value="">— Sin resultado —</option>
+                    {(Object.entries(RESULTADOS) as [ResultadoLicitacion, string][]).map(([k, v]) => (
+                      <option key={k} value={k}>{v}</option>
+                    ))}
+                  </select>
+                  {guardando === 'resultado' && <span className="text-xs text-gray-400">Guardando...</span>}
+                </div>
+              </div>
               <CampoInline label="Cierre 1er llamado" valor={formatFechaHora(lic.fecha_cierre_1)} />
               {lic.fecha_cierre_2 && <CampoInline label="Cierre 2do llamado" valor={formatFechaHora(lic.fecha_cierre_2)} />}
               {lic.fecha_publicacion && <CampoInline label="Publicación" valor={formatFechaHora(lic.fecha_publicacion)} />}
