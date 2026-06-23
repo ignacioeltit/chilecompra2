@@ -16,6 +16,7 @@ export type ResultadoLicitacion =
   | 'perdida'
   | 'desierta'
   | 'cerrada_sin_adj'
+  | 'anulada'
 
 export type EstadoOC = 'emitida' | 'aceptada' | 'facturada' | 'pagada'
 
@@ -168,6 +169,7 @@ export const RESULTADOS: Record<ResultadoLicitacion, string> = {
   perdida:         'Perdida',
   desierta:        'Desierta',
   cerrada_sin_adj: 'Cerrada sin adj.',
+  anulada:         'Anulada',
 }
 
 export const ESTADOS_OC: Record<EstadoOC, string> = {
