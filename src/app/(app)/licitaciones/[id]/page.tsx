@@ -918,6 +918,27 @@ function GestionFinanciera({
           onGuardar={(v) => onGuardar('fecha_pago', v || null)}
           formatear={(v) => v ? new Date(v + 'T12:00:00').toLocaleDateString('es-CL') : '—'}
         />
+
+        {/* Método de pago */}
+        <div className="flex items-center justify-between px-5 py-3">
+          <span className="text-xs font-medium text-gray-500 w-40 shrink-0">Método de pago</span>
+          <div className="flex items-center gap-2 flex-1 justify-end">
+            <select
+              value={lic.metodo_pago ?? ''}
+              onChange={e => onGuardar('metodo_pago', e.target.value || null)}
+              disabled={guardando === 'metodo_pago'}
+              className="text-sm text-gray-800 bg-transparent border border-gray-200 rounded-lg px-2 py-1 hover:border-gray-300 focus:outline-none focus:border-blue-400 cursor-pointer"
+            >
+              <option value="">— Sin especificar —</option>
+              <option value="Transferencia bancaria">Transferencia bancaria</option>
+              <option value="Confirming Banco Estado">Confirming Banco Estado</option>
+              <option value="Cheque">Cheque</option>
+              <option value="Efectivo">Efectivo</option>
+              <option value="Otro">Otro</option>
+            </select>
+            {guardando === 'metodo_pago' && <span className="text-xs text-gray-400">Guardando...</span>}
+          </div>
+        </div>
       </div>
     </div>
   )

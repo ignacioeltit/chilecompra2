@@ -94,6 +94,7 @@ export interface Licitacion {
   numero_factura: string | null
   fecha_emision_factura: string | null
   fecha_pago: string | null
+  metodo_pago: string | null
   asignado_a: string | null
   notas: string | null
   creado_por: string

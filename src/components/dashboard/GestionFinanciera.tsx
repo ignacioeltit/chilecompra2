@@ -222,6 +222,7 @@ export function GestionFinanciera({ licitaciones }: Props) {
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Monto</th>
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">N° Factura</th>
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Fecha pago</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Método de pago</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -249,6 +250,12 @@ export function GestionFinanciera({ licitaciones }: Props) {
                     <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">
                       {l.fecha_pago
                         ? new Date(l.fecha_pago).toLocaleDateString('es-CL')
+                        : <span className="text-gray-400">—</span>
+                      }
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">
+                      {l.metodo_pago
+                        ? <span className="text-xs text-gray-700">{l.metodo_pago}</span>
                         : <span className="text-gray-400">—</span>
                       }
                     </td>
