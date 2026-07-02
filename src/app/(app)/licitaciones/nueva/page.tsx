@@ -6,7 +6,6 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowLeft, Loader2, Info } from 'lucide-react'
 import { licitacionSchema, type LicitacionSchema } from '@/lib/validations/licitacion'
-import { crearLicitacion } from '@/app/actions/licitaciones'
 import { ESTADOS_LICITACION, RESULTADOS, ESTADOS_OC, detectarTipo } from '@/types'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -56,12 +55,69 @@ function NuevaLicitacionForm() {
   async function onSubmit(data: LicitacionSchema) {
     setEnviando(true)
     setError(null)
-    const result = await crearLicitacion(data as any)
-    if (result.error) {
-      setError(result.error)
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('No autenticado')
+
+      const { data: perfil } = await supabase
+        .from('usuarios')
+        .select('org_id, rol')
+        .eq('id', user.id)
+        .single()
+
+      if (!perfil || perfil.rol === 'lector') throw new Error('Sin permisos')
+
+      // Normalizar campos de fecha: '' -> null para evitar errores en Postgres
+      const payload = {
+        ...data,
+        fecha_publicacion: data.fecha_publicacion ? data.fecha_publicacion : null,
+        fecha_cierre_2: data.fecha_cierre_2 ? data.fecha_cierre_2 : null,
+        contacto_telefono: data.contacto_telefono && data.contacto_telefono !== ''
+          ? data.contacto_telefono
+          : null,
+      }
+
+      // Buscar/crear institución
+      let instId = data.institucion_id ?? null
+      if (!instId) {
+        const { data: existente } = await supabase
+          .from('instituciones')
+          .select('id')
+          .eq('org_id', perfil.org_id)
+          .ilike('nombre', data.institucion)
+          .maybeSingle()
+
+        if (existente) {
+          instId = existente.id
+        } else {
+          const { data: nueva, error: instError } = await supabase
+            .from('instituciones')
+            .insert({ org_id: perfil.org_id, nombre: data.institucion })
+            .select('id')
+            .single()
+          if (instError) throw new Error(instError.message)
+          instId = nueva?.id ?? null
+        }
+      }
+
+      const { data: licitacion, error: insertError } = await supabase
+        .from('licitaciones')
+        .insert({
+          ...payload,
+          org_id: perfil.org_id,
+          institucion_id: instId,
+          creado_por: user.id,
+        })
+        .select('id')
+        .single()
+
+      if (insertError) throw new Error(insertError.message)
+
+      router.push(`/licitaciones/${licitacion.id}`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al crear la licitación')
       setEnviando(false)
-    } else {
-      router.push(`/licitaciones/${result.id}`)
     }
   }
 
