@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, CheckCircle, AlertCircle, Paperclip, Clock, Edit2, ExternalLink, Eye, XCircle, ChevronDown } from 'lucide-react'
+import { ArrowLeft, CheckCircle, AlertCircle, Paperclip, Clock, Edit2, ExternalLink, Eye, XCircle, ChevronDown, Copy } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { type LicitacionConAlerta, type ResultadoLicitacion, RESULTADOS, ESTADOS_LICITACION } from '@/types'
+import { type LicitacionConAlerta, type ResultadoLicitacion, type Factura, RESULTADOS, ESTADOS_LICITACION } from '@/types'
 import { calcularCategoriaAlerta } from '@/lib/utils/categoria-alerta'
 import { BadgeAlerta } from '@/components/ui/badge-alerta'
 import { actualizarInstitucionLicitacion } from '@/app/actions/licitaciones'
@@ -816,9 +816,35 @@ function GestionFinanciera({
     pagada:    'Pagada',
   }
   const idxActual = lic.estado_oc ? PASOS_OC.indexOf(lic.estado_oc) : -1
+  const [copiado, setCopiado] = useState(false)
 
   // Formatear fecha ISO → value para input date
   const toDateInput = (iso: string | null) => iso ? iso.slice(0, 10) : ''
+
+  function copiarDatosCobro() {
+    const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('es-CL') : '—'
+    const fechaCobro = lic.fecha_emision_factura
+      ? (() => { const d = new Date(lic.fecha_emision_factura!); d.setDate(d.getDate() + 30); return d.toLocaleDateString('es-CL') })()
+      : '—'
+    const monto = lic.monto_clp
+      ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(lic.monto_clp)
+      : '—'
+    const texto = [
+      `Licitación: ${lic.nombre}`,
+      `Código: ${lic.codigo_chilecompra}`,
+      `Monto adjudicado: ${monto}`,
+      lic.orden_compra   ? `N° OC: ${lic.orden_compra}` : null,
+      lic.numero_factura ? `Factura N°: ${lic.numero_factura}` : null,
+      lic.fecha_emision_factura ? `Fecha emisión factura: ${fmt(lic.fecha_emision_factura)}` : null,
+      lic.fecha_pago     ? `Fecha de pago: ${fmt(lic.fecha_pago)}` : `Fecha estimada de cobro: ${fechaCobro}`,
+      lic.metodo_pago    ? `Método de pago: ${lic.metodo_pago}` : null,
+    ].filter(Boolean).join('\n')
+
+    navigator.clipboard.writeText(texto).then(() => {
+      setCopiado(true)
+      setTimeout(() => setCopiado(false), 2000)
+    })
+  }
 
   return (
     <div className="bg-white rounded-xl border border-green-200 overflow-hidden">
@@ -826,6 +852,13 @@ function GestionFinanciera({
       <div className="px-5 py-3 bg-green-50 border-b border-green-200 flex items-center gap-2">
         <CheckCircle className="h-4 w-4 text-green-600" />
         <h3 className="text-sm font-semibold text-green-800">Gestión financiera — Licitación ganada</h3>
+        <button
+          onClick={copiarDatosCobro}
+          className="ml-auto flex items-center gap-1.5 text-xs text-green-700 hover:text-green-900 border border-green-300 hover:border-green-500 bg-white rounded-lg px-2.5 py-1.5 transition-colors"
+        >
+          <Copy className="h-3.5 w-3.5" />
+          {copiado ? '¡Copiado!' : 'Copiar datos de cobro'}
+        </button>
       </div>
 
       {/* Barra de progreso OC */}
@@ -890,55 +923,186 @@ function GestionFinanciera({
           onGuardar={(v) => onGuardar('orden_compra', v || null)}
         />
 
-        {/* Número de factura */}
-        <CampoEditable
-          label="Número de factura"
-          valor={lic.numero_factura ?? ''}
-          placeholder="Ej: 4521"
-          guardando={guardando === 'numero_factura'}
-          onGuardar={(v) => onGuardar('numero_factura', v || null)}
-        />
+        {/* Facturas parciales */}
+        <FacturasSection licId={lic.id} orgId={lic.org_id} montoOC={lic.monto_clp} />
+      </div>
+    </div>
+  )
+}
 
-        {/* Fecha emisión factura */}
-        <CampoEditable
-          label="Fecha emisión factura"
-          valor={toDateInput(lic.fecha_emision_factura)}
-          tipo="date"
-          guardando={guardando === 'fecha_emision_factura'}
-          onGuardar={(v) => onGuardar('fecha_emision_factura', v || null)}
-          formatear={(v) => v ? new Date(v + 'T12:00:00').toLocaleDateString('es-CL') : '—'}
-        />
+const METODOS_PAGO = ['Transferencia bancaria', 'Confirming Banco Estado', 'Cheque', 'Efectivo', 'Otro']
 
-        {/* Fecha pago */}
-        <CampoEditable
-          label="Fecha de pago"
-          valor={toDateInput(lic.fecha_pago)}
-          tipo="date"
-          guardando={guardando === 'fecha_pago'}
-          onGuardar={(v) => onGuardar('fecha_pago', v || null)}
-          formatear={(v) => v ? new Date(v + 'T12:00:00').toLocaleDateString('es-CL') : '—'}
-        />
+function FacturasSection({ licId, orgId, montoOC }: { licId: string; orgId: string; montoOC: number | null }) {
+  const supabase = createClient()
+  const [facturas, setFacturas] = useState<Factura[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [agregando, setAgregando] = useState(false)
+  const [guardando, setGuardando] = useState(false)
+  const [form, setForm] = useState({ numero: '', monto: '', fecha_emision: '', fecha_pago: '', metodo_pago: '', notas: '' })
+  const [error, setError] = useState<string | null>(null)
 
-        {/* Método de pago */}
-        <div className="flex items-center justify-between px-5 py-3">
-          <span className="text-xs font-medium text-gray-500 w-40 shrink-0">Método de pago</span>
-          <div className="flex items-center gap-2 flex-1 justify-end">
-            <select
-              value={lic.metodo_pago ?? ''}
-              onChange={e => onGuardar('metodo_pago', e.target.value || null)}
-              disabled={guardando === 'metodo_pago'}
-              className="text-sm text-gray-800 bg-transparent border border-gray-200 rounded-lg px-2 py-1 hover:border-gray-300 focus:outline-none focus:border-blue-400 cursor-pointer"
-            >
-              <option value="">— Sin especificar —</option>
-              <option value="Transferencia bancaria">Transferencia bancaria</option>
-              <option value="Confirming Banco Estado">Confirming Banco Estado</option>
-              <option value="Cheque">Cheque</option>
-              <option value="Efectivo">Efectivo</option>
-              <option value="Otro">Otro</option>
-            </select>
-            {guardando === 'metodo_pago' && <span className="text-xs text-gray-400">Guardando...</span>}
+  async function cargar() {
+    const { data } = await supabase.from('facturas').select('*').eq('licitacion_id', licId).order('fecha_emision', { ascending: true })
+    setFacturas((data as Factura[]) ?? [])
+    setCargando(false)
+  }
+
+  useEffect(() => { void cargar() }, [licId])
+
+  const totalFacturado = facturas.reduce((s, f) => s + f.monto, 0)
+  const saldo = (montoOC ?? 0) - totalFacturado
+
+  async function guardarFactura() {
+    if (!form.numero || !form.monto || !form.fecha_emision) { setError('Número, monto y fecha son obligatorios'); return }
+    setGuardando(true); setError(null)
+    const { error: err } = await supabase.from('facturas').insert({
+      org_id: orgId, licitacion_id: licId,
+      numero: form.numero, monto: Number(form.monto),
+      fecha_emision: form.fecha_emision,
+      fecha_pago: form.fecha_pago || null,
+      metodo_pago: form.metodo_pago || null,
+      notas: form.notas || null,
+    })
+    if (err) { setError(err.message); setGuardando(false); return }
+    setForm({ numero: '', monto: '', fecha_emision: '', fecha_pago: '', metodo_pago: '', notas: '' })
+    setAgregando(false); setGuardando(false)
+    await cargar()
+  }
+
+  async function marcarPagada(id: string, fecha: string) {
+    await supabase.from('facturas').update({ fecha_pago: fecha }).eq('id', id)
+    await cargar()
+  }
+
+  async function eliminarFactura(id: string) {
+    if (!confirm('¿Eliminar esta factura?')) return
+    await supabase.from('facturas').delete().eq('id', id)
+    await cargar()
+  }
+
+  const fmt = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
+  const fmtFecha = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('es-CL')
+
+  return (
+    <div className="px-5 py-4 space-y-3">
+      {/* Resumen OC */}
+      {montoOC && (
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="bg-gray-50 rounded-lg p-2">
+            <div className="text-xs text-gray-500 mb-0.5">Total OC</div>
+            <div className="text-sm font-bold text-gray-800">{fmt(montoOC)}</div>
+          </div>
+          <div className="bg-blue-50 rounded-lg p-2">
+            <div className="text-xs text-blue-600 mb-0.5">Facturado</div>
+            <div className="text-sm font-bold text-blue-700">{fmt(totalFacturado)}</div>
+          </div>
+          <div className={`rounded-lg p-2 ${saldo > 0 ? 'bg-amber-50' : 'bg-green-50'}`}>
+            <div className={`text-xs mb-0.5 ${saldo > 0 ? 'text-amber-600' : 'text-green-600'}`}>Saldo</div>
+            <div className={`text-sm font-bold ${saldo > 0 ? 'text-amber-700' : 'text-green-700'}`}>{fmt(saldo)}</div>
           </div>
         </div>
+      )}
+
+      {/* Lista de facturas */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Facturas emitidas</span>
+          <button onClick={() => setAgregando(v => !v)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">
+            {agregando ? 'Cancelar' : '+ Agregar factura'}
+          </button>
+        </div>
+
+        {cargando && <p className="text-xs text-gray-400">Cargando...</p>}
+
+        {!cargando && facturas.length === 0 && !agregando && (
+          <p className="text-xs text-gray-400 italic">Sin facturas registradas</p>
+        )}
+
+        {facturas.map(f => {
+          const pagada = !!f.fecha_pago
+          const fechaCobro = (() => { const d = new Date(f.fecha_emision + 'T12:00:00'); d.setDate(d.getDate() + 30); return d })()
+          const vencida = !pagada && fechaCobro < new Date()
+          return (
+            <div key={f.id} className={`rounded-lg border p-3 text-sm ${pagada ? 'bg-green-50 border-green-200' : vencida ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200'}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-gray-800">Factura N°{f.numero}</span>
+                    <span className="font-bold text-gray-900">{fmt(f.monto)}</span>
+                    {pagada
+                      ? <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">✓ Pagada {fmtFecha(f.fecha_pago!)}</span>
+                      : vencida
+                      ? <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-medium">⚠ Vencida</span>
+                      : <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Cobro est. {fechaCobro.toLocaleDateString('es-CL')}</span>
+                    }
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5 flex gap-3 flex-wrap">
+                    <span>Emitida: {fmtFecha(f.fecha_emision)}</span>
+                    {f.metodo_pago && <span>{f.metodo_pago}</span>}
+                    {f.notas && <span className="italic">{f.notas}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {!pagada && (
+                    <button
+                      onClick={() => marcarPagada(f.id, new Date().toISOString().slice(0, 10))}
+                      className="text-xs text-green-600 hover:text-green-800 border border-green-300 hover:border-green-500 rounded px-2 py-1"
+                    >
+                      Marcar pagada
+                    </button>
+                  )}
+                  <button onClick={() => eliminarFactura(f.id)} className="text-xs text-red-400 hover:text-red-600 px-1">✕</button>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+
+        {/* Formulario agregar */}
+        {agregando && (
+          <div className="border border-blue-200 rounded-lg p-3 bg-blue-50/50 space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-500">N° Factura *</label>
+                <input type="text" value={form.numero} onChange={e => setForm(f => ({ ...f, numero: e.target.value }))}
+                  placeholder="Ej: 23" className="w-full mt-0.5 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-400" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Monto total (con IVA) *</label>
+                <input type="number" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: e.target.value }))}
+                  placeholder="Ej: 165539" className="w-full mt-0.5 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-400" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Fecha emisión *</label>
+                <input type="date" value={form.fecha_emision} onChange={e => setForm(f => ({ ...f, fecha_emision: e.target.value }))}
+                  className="w-full mt-0.5 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-400" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Fecha pago (si ya fue pagada)</label>
+                <input type="date" value={form.fecha_pago} onChange={e => setForm(f => ({ ...f, fecha_pago: e.target.value }))}
+                  className="w-full mt-0.5 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-400" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Método de pago</label>
+              <select value={form.metodo_pago} onChange={e => setForm(f => ({ ...f, metodo_pago: e.target.value }))}
+                className="w-full mt-0.5 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-400 bg-white">
+                <option value="">— Sin especificar —</option>
+                {METODOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Notas (opcional)</label>
+              <input type="text" value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))}
+                placeholder="Ej: Cambio amortiguadores traseros" className="w-full mt-0.5 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-400" />
+            </div>
+            {error && <p className="text-xs text-red-600">{error}</p>}
+            <button onClick={guardarFactura} disabled={guardando}
+              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50">
+              {guardando ? 'Guardando...' : 'Guardar factura'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

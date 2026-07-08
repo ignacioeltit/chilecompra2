@@ -102,6 +102,19 @@ export interface Licitacion {
   actualizado_en: string
 }
 
+export interface Factura {
+  id: string
+  org_id: string
+  licitacion_id: string
+  numero: string
+  monto: number
+  fecha_emision: string
+  fecha_pago: string | null
+  metodo_pago: string | null
+  notas: string | null
+  creado_en: string
+}
+
 export interface LicitacionConAlerta extends Licitacion {
   horas_restantes: number
   categoria_alerta_calc: CategoriaAlerta
