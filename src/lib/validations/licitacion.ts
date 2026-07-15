@@ -4,14 +4,14 @@ const ESTADOS = ['sin_definir','pendiente_enviar','revisar','enviada','no_partic
 const RESULTADOS = ['ganada','perdida','desierta','cerrada_sin_adj'] as const
 const ESTADOS_OC = ['emitida','aceptada','facturada','pagada'] as const
 
-// Regex código Chilecompra — primer segmento hasta 8 dígitos (ej: 1375761), segundo hasta 5
-const CODIGO_REGEX = /^\d{1,8}-\d{1,5}-(COT|LE|LP|LR|LC)\d{0,4}$/i
+// Regex código Chilecompra — formato estándar + OD-XXXX-MMYYYY para órdenes directas
+const CODIGO_REGEX = /^(\d{1,8}-\d{1,5}-(COT|LE|LP|LR|LC)\d{0,4}|OD-[A-Z0-9]+-\d{6})$/i
 
 export const licitacionSchema = z.object({
   codigo_chilecompra: z
     .string()
     .min(1, 'Código requerido')
-    .regex(CODIGO_REGEX, 'Formato: 1375761-130-COT26, 3449-26-COT26, etc.'),
+    .regex(CODIGO_REGEX, 'Formato: 1375761-130-COT26, 3449-26-COT26, OD-PORTEZUELO-072026, etc.'),
 
   nombre: z.string().min(3, 'Nombre muy corto').max(500),
 

@@ -221,9 +221,10 @@ export interface LicitacionFormData {
 }
 
 // Tipo de licitación detectado del código
-export type TipoLicitacion = 'COT' | 'LE' | 'LP' | 'desconocido'
+export type TipoLicitacion = 'COT' | 'LE' | 'LP' | 'OD' | 'desconocido'
 
 export function detectarTipo(codigo: string): TipoLicitacion {
+  if (/^OD-/i.test(codigo)) return 'OD'
   if (/COT/i.test(codigo)) return 'COT'
   if (/\bLE\b/i.test(codigo)) return 'LE'
   if (/\bLP\b/i.test(codigo)) return 'LP'
