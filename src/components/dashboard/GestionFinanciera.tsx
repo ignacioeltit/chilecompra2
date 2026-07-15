@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { type LicitacionConAlerta, type EstadoOC, ESTADOS_OC } from '@/types'
+import { createClient } from '@/lib/supabase/client'
+import { type LicitacionConAlerta, type EstadoOC, type Factura, ESTADOS_OC } from '@/types'
 import { formatCLP } from '@/lib/utils/format'
 import { CheckCircle, Clock, AlertCircle, DollarSign, ChevronDown, XCircle } from 'lucide-react'
 
@@ -12,10 +13,21 @@ interface Props {
 
 const PASOS: EstadoOC[] = ['emitida', 'aceptada', 'facturada', 'pagada']
 
-function infoCobro(l: LicitacionConAlerta): { fechaVence: Date | null; diasRestantes: number | null } {
-  const emision = l.fecha_emision_factura ?? l.ultima_emision_factura
-  if (l.estado_oc !== 'facturada' || !emision) return { fechaVence: null, diasRestantes: null }
-  const fechaVence = new Date(emision)
+// Devuelve la fecha de vencimiento más urgente entre facturas sin pagar (+30 días desde emisión)
+function infoCobroDesdeFacturas(facturas: Factura[]): { fechaVence: Date | null; diasRestantes: number | null } {
+  const unpaid = facturas.filter(f => !f.fecha_pago)
+  if (unpaid.length === 0) return { fechaVence: null, diasRestantes: null }
+  const oldest = unpaid.reduce((min, f) => f.fecha_emision < min.fecha_emision ? f : min)
+  const fechaVence = new Date(oldest.fecha_emision)
+  fechaVence.setDate(fechaVence.getDate() + 30)
+  const diasRestantes = Math.ceil((fechaVence.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+  return { fechaVence, diasRestantes }
+}
+
+// Fallback para licitaciones sin facturas en tabla nueva (campo legacy)
+function infoCobroLegacy(l: LicitacionConAlerta): { fechaVence: Date | null; diasRestantes: number | null } {
+  if (l.estado_oc !== 'facturada' || !l.fecha_emision_factura) return { fechaVence: null, diasRestantes: null }
+  const fechaVence = new Date(l.fecha_emision_factura)
   fechaVence.setDate(fechaVence.getDate() + 30)
   const diasRestantes = Math.ceil((fechaVence.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
   return { fechaVence, diasRestantes }
@@ -23,38 +35,62 @@ function infoCobro(l: LicitacionConAlerta): { fechaVence: Date | null; diasResta
 
 export function GestionFinanciera({ licitaciones }: Props) {
   const [mostrarPagadas, setMostrarPagadas] = useState(false)
+  const [facturasPorLic, setFacturasPorLic] = useState<Record<string, Factura[]>>({})
+
   const ganadas = licitaciones.filter(l => l.resultado === 'ganada')
+
+  // Carga todas las facturas de las licitaciones ganadas en una sola query
+  useEffect(() => {
+    const ids = ganadas.map(l => l.id)
+    if (ids.length === 0) { setFacturasPorLic({}); return }
+    const supabase = createClient()
+    supabase
+      .from('facturas')
+      .select('*')
+      .in('licitacion_id', ids)
+      .order('fecha_emision', { ascending: true })
+      .then(({ data }) => {
+        if (!data) return
+        const map: Record<string, Factura[]> = {}
+        for (const f of data) {
+          if (!map[f.licitacion_id]) map[f.licitacion_id] = []
+          map[f.licitacion_id].push(f)
+        }
+        setFacturasPorLic(map)
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [licitaciones])
 
   if (ganadas.length === 0) return null
 
-  // Conteo y montos por estado OC
-  const sinOC    = ganadas.filter(l => !l.estado_oc)
-  const emitidas = ganadas.filter(l => l.estado_oc === 'emitida')
-  const aceptadas= ganadas.filter(l => l.estado_oc === 'aceptada')
-  const facturadas=ganadas.filter(l => l.estado_oc === 'facturada')
-  const pagadas  = ganadas.filter(l => l.estado_oc === 'pagada')
+  const sinOC      = ganadas.filter(l => !l.estado_oc)
+  const emitidas   = ganadas.filter(l => l.estado_oc === 'emitida')
+  const aceptadas  = ganadas.filter(l => l.estado_oc === 'aceptada')
+  const facturadas = ganadas.filter(l => l.estado_oc === 'facturada')
+  const pagadas    = ganadas.filter(l => l.estado_oc === 'pagada')
 
   const pendienteCobro = [...sinOC, ...emitidas, ...aceptadas, ...facturadas]
   const totalPendiente = pendienteCobro.reduce((s, l) => s + (l.monto_clp ?? 0), 0)
   const totalCobrado   = pagadas.reduce((s, l) => s + (l.monto_clp ?? 0), 0)
 
+  // Facturas vencidas: tabla nueva primero, legacy después
   const facturasVencidas = facturadas.filter(l => {
-    const { diasRestantes } = infoCobro(l)
+    const facts = facturasPorLic[l.id]
+    const { diasRestantes } = facts?.length
+      ? infoCobroDesdeFacturas(facts)
+      : infoCobroLegacy(l)
     return diasRestantes !== null && diasRestantes < 0
   })
 
-  // Tabla: ganadas con acción pendiente (no pagadas), ordenadas por prioridad de estado
-  const pendienteTabla = pendienteCobro
-    .sort((a, b) => {
-      const ord: Record<string, number> = { facturada: 0, aceptada: 1, emitida: 2, '': 3 }
-      return (ord[a.estado_oc ?? ''] ?? 3) - (ord[b.estado_oc ?? ''] ?? 3)
-    })
+  const pendienteTabla = [...pendienteCobro].sort((a, b) => {
+    const ord: Record<string, number> = { facturada: 0, aceptada: 1, emitida: 2, '': 3 }
+    return (ord[a.estado_oc ?? ''] ?? 3) - (ord[b.estado_oc ?? ''] ?? 3)
+  })
 
   return (
     <div>
       <h2 className="text-base font-semibold text-gray-800 mb-3">Gestión financiera</h2>
 
-      {/* Alerta facturas vencidas */}
       {facturasVencidas.length > 0 && (
         <div className="mb-3 flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
           <XCircle className="h-4 w-4 shrink-0" />
@@ -116,88 +152,125 @@ export function GestionFinanciera({ licitaciones }: Props) {
             <span className="text-sm font-medium text-gray-700">Licitaciones ganadas pendientes de cobro</span>
             <Link href="/licitaciones" className="text-xs text-blue-600 hover:underline">Ver todas →</Link>
           </div>
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Código</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Nombre</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Monto</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Estado OC</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Factura</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Cobro estimado</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {pendienteTabla.map(l => {
-                const idxOC = l.estado_oc ? PASOS.indexOf(l.estado_oc) : -1
-                const isPendFactura = idxOC < 2
-                const { fechaVence, diasRestantes } = infoCobro(l)
-                const vencido = diasRestantes !== null && diasRestantes < 0
-                const proximoVencer = diasRestantes !== null && diasRestantes >= 0 && diasRestantes <= 7
-                return (
-                  <tr key={l.id} className={`hover:bg-gray-50 transition-colors ${vencido ? 'bg-red-50' : ''}`}>
-                    <td className="px-4 py-3">
-                      <Link href={`/licitaciones/${l.id}`} className="font-mono text-blue-600 hover:underline text-xs whitespace-nowrap">
-                        {l.codigo_chilecompra}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 max-w-[220px]">
-                      <Link href={`/licitaciones/${l.id}`} className="hover:text-blue-600 line-clamp-1 text-gray-800">
-                        {l.nombre}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
-                      {l.monto_clp ? formatCLP(l.monto_clp) : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      {l.estado_oc ? (
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                          l.estado_oc === 'facturada' ? 'bg-blue-100 text-blue-700' :
-                          l.estado_oc === 'aceptada'  ? 'bg-purple-100 text-purple-700' :
-                          'bg-amber-100 text-amber-700'
-                        }`}>
-                          {ESTADOS_OC[l.estado_oc]}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-gray-400 italic">Sin OC</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {(l.facturas_numeros ?? l.numero_factura) ? (
-                        <span className="text-xs font-mono text-gray-700">#{l.facturas_numeros ?? l.numero_factura}</span>
-                      ) : isPendFactura ? (
-                        <span className="text-xs text-amber-600 font-medium">Pendiente</span>
-                      ) : (
-                        <span className="text-xs text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {fechaVence ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Código</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Nombre</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Monto OC</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Estado OC</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Facturado</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Cobro estimado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {pendienteTabla.map(l => {
+                  const facts      = facturasPorLic[l.id] ?? []
+                  const totalFact  = facts.reduce((s, f) => s + f.monto, 0)
+                  const unpaid     = facts.filter(f => !f.fecha_pago)
+                  const idxOC      = l.estado_oc ? PASOS.indexOf(l.estado_oc) : -1
+                  const isPendFact = idxOC < 2
+
+                  const { fechaVence, diasRestantes } = facts.length
+                    ? infoCobroDesdeFacturas(facts)
+                    : infoCobroLegacy(l)
+
+                  const vencido       = diasRestantes !== null && diasRestantes < 0
+                  const proximoVencer = diasRestantes !== null && diasRestantes >= 0 && diasRestantes <= 7
+
+                  const celdaFacturado = (() => {
+                    if (facts.length > 0) {
+                      const pct = l.monto_clp ? Math.round((totalFact / l.monto_clp) * 100) : null
+                      return (
                         <div className="flex flex-col gap-0.5">
-                          <span className={`text-xs font-medium ${vencido ? 'text-red-600' : proximoVencer ? 'text-amber-600' : 'text-gray-700'}`}>
-                            {fechaVence.toLocaleDateString('es-CL')}
+                          <span className="text-xs font-medium text-gray-800">
+                            {facts.length === 1
+                              ? `#${facts[0].numero}`
+                              : `${facts.length} facturas parciales`}
                           </span>
-                          <span className={`text-xs ${vencido ? 'text-red-500 font-semibold' : proximoVencer ? 'text-amber-500' : 'text-gray-400'}`}>
-                            {vencido
-                              ? `⚠ Vencida hace ${Math.abs(diasRestantes!)} día${Math.abs(diasRestantes!) !== 1 ? 's' : ''}`
-                              : diasRestantes === 0
-                              ? '⚡ Vence hoy'
-                              : `${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}`}
+                          <span className="text-xs text-gray-500">
+                            {formatCLP(totalFact)}
+                            {pct !== null && (
+                              <span className={`ml-1 font-medium ${pct >= 100 ? 'text-green-600' : 'text-amber-600'}`}>
+                                ({pct}%)
+                              </span>
+                            )}
                           </span>
+                          {unpaid.length > 0 && (
+                            <span className="text-xs text-blue-500">
+                              {unpaid.length === 1 ? '1 sin cobrar' : `${unpaid.length} sin cobrar`}
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <span className="text-xs text-gray-300">—</span>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                      )
+                    }
+                    if (l.numero_factura) {
+                      return <span className="text-xs font-mono text-gray-700">#{l.numero_factura}</span>
+                    }
+                    if (isPendFact) {
+                      return <span className="text-xs text-amber-600 font-medium">Pendiente</span>
+                    }
+                    return <span className="text-xs text-gray-400">—</span>
+                  })()
+
+                  return (
+                    <tr key={l.id} className={`hover:bg-gray-50 transition-colors ${vencido ? 'bg-red-50' : ''}`}>
+                      <td className="px-4 py-3">
+                        <Link href={`/licitaciones/${l.id}`} className="font-mono text-blue-600 hover:underline text-xs whitespace-nowrap">
+                          {l.codigo_chilecompra}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 max-w-[200px]">
+                        <Link href={`/licitaciones/${l.id}`} className="hover:text-blue-600 line-clamp-1 text-gray-800">
+                          {l.nombre}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
+                        {l.monto_clp ? formatCLP(l.monto_clp) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        {l.estado_oc ? (
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            l.estado_oc === 'facturada' ? 'bg-blue-100 text-blue-700' :
+                            l.estado_oc === 'aceptada'  ? 'bg-purple-100 text-purple-700' :
+                            'bg-amber-100 text-amber-700'
+                          }`}>
+                            {ESTADOS_OC[l.estado_oc]}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">Sin OC</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">{celdaFacturado}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {fechaVence ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className={`text-xs font-medium ${vencido ? 'text-red-600' : proximoVencer ? 'text-amber-600' : 'text-gray-700'}`}>
+                              {fechaVence.toLocaleDateString('es-CL')}
+                            </span>
+                            <span className={`text-xs ${vencido ? 'text-red-500 font-semibold' : proximoVencer ? 'text-amber-500' : 'text-gray-400'}`}>
+                              {vencido
+                                ? `⚠ Vencida hace ${Math.abs(diasRestantes!)} día${Math.abs(diasRestantes!) !== 1 ? 's' : ''}`
+                                : diasRestantes === 0
+                                ? '⚡ Vence hoy'
+                                : `${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}`}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* Tabla de facturas pagadas */}
+      {/* Tabla de licitaciones pagadas */}
       {pagadas.length > 0 && (
         <div className="bg-white rounded-xl border border-green-200 overflow-hidden mt-3">
           <button
@@ -206,64 +279,81 @@ export function GestionFinanciera({ licitaciones }: Props) {
           >
             <div className="flex items-center gap-2">
               <CheckCircle className="h-4 w-4 text-green-600" />
-              <span className="text-sm font-medium text-green-800">
-                Facturas pagadas ({pagadas.length})
-              </span>
+              <span className="text-sm font-medium text-green-800">Pagadas ({pagadas.length})</span>
               <span className="text-sm font-bold text-green-700">{formatCLP(totalCobrado)}</span>
             </div>
             <ChevronDown className={`h-4 w-4 text-green-600 transition-transform ${mostrarPagadas ? 'rotate-180' : ''}`} />
           </button>
 
           {mostrarPagadas && (
-            <table className="w-full text-sm">
-              <thead className="bg-green-50/50 border-b border-green-100">
-                <tr>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Código</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Nombre</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Monto</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">N° Factura</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Fecha pago</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Método de pago</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {pagadas.map(l => (
-                  <tr key={l.id} className="hover:bg-green-50/30 transition-colors">
-                    <td className="px-4 py-3">
-                      <Link href={`/licitaciones/${l.id}`} className="font-mono text-blue-600 hover:underline text-xs whitespace-nowrap">
-                        {l.codigo_chilecompra}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 max-w-[220px]">
-                      <Link href={`/licitaciones/${l.id}`} className="hover:text-blue-600 line-clamp-1 text-gray-800">
-                        {l.nombre}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
-                      {l.monto_clp ? formatCLP(l.monto_clp) : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      {(l.facturas_numeros ?? l.numero_factura)
-                        ? <span className="text-xs font-mono font-semibold text-green-700">#{l.facturas_numeros ?? l.numero_factura}</span>
-                        : <span className="text-xs text-gray-400">—</span>
-                      }
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">
-                      {l.fecha_pago
-                        ? new Date(l.fecha_pago).toLocaleDateString('es-CL')
-                        : <span className="text-gray-400">—</span>
-                      }
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">
-                      {l.metodo_pago
-                        ? <span className="text-xs text-gray-700">{l.metodo_pago}</span>
-                        : <span className="text-gray-400">—</span>
-                      }
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-green-50/50 border-b border-green-100">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Código</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Nombre</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Monto</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Facturas</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Fecha pago</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Método</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {pagadas.map(l => {
+                    const facts = facturasPorLic[l.id] ?? []
+                    const totalFact = facts.reduce((s, f) => s + f.monto, 0)
+                    const lastPaid = facts
+                      .filter(f => f.fecha_pago)
+                      .sort((a, b) => (b.fecha_pago ?? '').localeCompare(a.fecha_pago ?? ''))[0]
+                    const fechaPago  = lastPaid?.fecha_pago ?? l.fecha_pago
+                    const metodoPago = lastPaid?.metodo_pago ?? l.metodo_pago
+
+                    return (
+                      <tr key={l.id} className="hover:bg-green-50/30 transition-colors">
+                        <td className="px-4 py-3">
+                          <Link href={`/licitaciones/${l.id}`} className="font-mono text-blue-600 hover:underline text-xs whitespace-nowrap">
+                            {l.codigo_chilecompra}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 max-w-[200px]">
+                          <Link href={`/licitaciones/${l.id}`} className="hover:text-blue-600 line-clamp-1 text-gray-800">
+                            {l.nombre}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
+                          {l.monto_clp ? formatCLP(l.monto_clp) : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          {facts.length > 0 ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-xs font-semibold text-green-700">
+                                {facts.length === 1 ? `#${facts[0].numero}` : `${facts.length} facturas`}
+                              </span>
+                              {facts.length > 1 && (
+                                <span className="text-xs text-gray-500">{formatCLP(totalFact)}</span>
+                              )}
+                            </div>
+                          ) : l.numero_factura ? (
+                            <span className="text-xs font-mono font-semibold text-green-700">#{l.numero_factura}</span>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">
+                          {fechaPago
+                            ? new Date(fechaPago).toLocaleDateString('es-CL')
+                            : <span className="text-gray-400">—</span>
+                          }
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">
+                          {metodoPago ?? <span className="text-gray-400">—</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
