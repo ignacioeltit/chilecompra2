@@ -118,6 +118,12 @@ export interface Factura {
 export interface LicitacionConAlerta extends Licitacion {
   horas_restantes: number
   categoria_alerta_calc: CategoriaAlerta
+  // Agregados de las facturas parciales (tabla `facturas`, vista migración 004)
+  facturas_numeros: string | null
+  monto_facturado: number | null
+  facturas_count: number | null
+  ultima_emision_factura: string | null
+  tiene_factura_impaga: boolean | null
 }
 
 export interface Adjunto {

@@ -13,8 +13,9 @@ interface Props {
 const PASOS: EstadoOC[] = ['emitida', 'aceptada', 'facturada', 'pagada']
 
 function infoCobro(l: LicitacionConAlerta): { fechaVence: Date | null; diasRestantes: number | null } {
-  if (l.estado_oc !== 'facturada' || !l.fecha_emision_factura) return { fechaVence: null, diasRestantes: null }
-  const fechaVence = new Date(l.fecha_emision_factura)
+  const emision = l.fecha_emision_factura ?? l.ultima_emision_factura
+  if (l.estado_oc !== 'facturada' || !emision) return { fechaVence: null, diasRestantes: null }
+  const fechaVence = new Date(emision)
   fechaVence.setDate(fechaVence.getDate() + 30)
   const diasRestantes = Math.ceil((fechaVence.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
   return { fechaVence, diasRestantes }
@@ -162,8 +163,8 @@ export function GestionFinanciera({ licitaciones }: Props) {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {l.numero_factura ? (
-                        <span className="text-xs font-mono text-gray-700">#{l.numero_factura}</span>
+                      {(l.facturas_numeros ?? l.numero_factura) ? (
+                        <span className="text-xs font-mono text-gray-700">#{l.facturas_numeros ?? l.numero_factura}</span>
                       ) : isPendFactura ? (
                         <span className="text-xs text-amber-600 font-medium">Pendiente</span>
                       ) : (
@@ -242,8 +243,8 @@ export function GestionFinanciera({ licitaciones }: Props) {
                       {l.monto_clp ? formatCLP(l.monto_clp) : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-4 py-3">
-                      {l.numero_factura
-                        ? <span className="text-xs font-mono font-semibold text-green-700">#{l.numero_factura}</span>
+                      {(l.facturas_numeros ?? l.numero_factura)
+                        ? <span className="text-xs font-mono font-semibold text-green-700">#{l.facturas_numeros ?? l.numero_factura}</span>
                         : <span className="text-xs text-gray-400">—</span>
                       }
                     </td>
