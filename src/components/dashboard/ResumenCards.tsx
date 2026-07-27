@@ -28,7 +28,7 @@ const CATEGORIA_ICONS: Partial<Record<CategoriaAlerta, React.ElementType>> = {
 }
 
 const COMBINADA = {
-  categorias: ['revisar_resultado', 'revisado'] as CategoriaAlerta[],
+  categorias: ['revisar_resultado'] as CategoriaAlerta[],
   label: 'Resultado pendiente',
   color: '#EFF6FF',
   textColor: '#1E40AF',
