@@ -146,7 +146,10 @@ export default function DashboardPage() {
           {loading ? (
             <div className="h-40 rounded-2xl bg-white animate-pulse border border-gray-100 shadow-sm" />
           ) : (
-            <TablaPrioritaria licitaciones={licsFiltradas} mostrarFinalizadas={filtroGanadas} />
+            <TablaPrioritaria
+              licitaciones={licsFiltradas}
+              mostrarFinalizadas={filtroGanadas || filtroCategoria?.some(c => ['resultado_registrado', 'revisado', 'ok'].includes(c)) === true}
+            />
           )}
         </div>
 
