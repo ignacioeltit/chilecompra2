@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, List, Calendar, BarChart2,
   Settings, LogOut, Upload, RefreshCw, MoreHorizontal,
-  Building2, X, Search, Command
+  Building2, X, Search, Command, Receipt
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils/cn'
@@ -19,6 +19,11 @@ const NAV = [
   { href: '/licitaciones', label: 'Licitaciones', icon: List },
   { href: '/calendario',   label: 'Calendario',   icon: Calendar },
   { href: '/reportes',     label: 'Reportes',     icon: BarChart2 },
+]
+
+// Aparece en sidebar desktop y panel "Más" móvil, pero NO en la barra inferior
+const NAV_EXTRA = [
+  { href: '/facturas', label: 'Facturas', icon: Receipt },
 ]
 
 export function Sidebar() {
@@ -85,6 +90,27 @@ export function Sidebar() {
               </Link>
             )
           })}
+
+          <div className="pt-3 mt-3 border-t border-slate-700/50 space-y-0.5">
+            {NAV_EXTRA.map(({ href, label, icon: Icon }) => {
+              const activo = pathname === href || pathname.startsWith(href + '/')
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={cn(
+                    'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+                    activo
+                      ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+                  )}
+                >
+                  <Icon className={cn('h-4 w-4 flex-shrink-0', activo ? 'text-blue-400' : 'text-slate-500')} />
+                  {label}
+                </Link>
+              )
+            })}
+          </div>
 
           {perfil?.rol === 'admin' && (
             <div className="pt-3 mt-3 border-t border-slate-700/50 space-y-0.5">
@@ -191,6 +217,17 @@ export function Sidebar() {
               <button onClick={() => setMenuAbierto(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100">
                 <X className="h-4 w-4" />
               </button>
+            </div>
+
+            <div className="space-y-1 mb-3">
+              {NAV_EXTRA.map(({ href, label, icon: Icon }) => (
+                <Link key={href} href={href} onClick={() => setMenuAbierto(false)} className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-gray-700 hover:bg-gray-50 font-medium">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                    <Icon className="h-4 w-4 text-blue-600" />
+                  </div>
+                  {label}
+                </Link>
+              ))}
             </div>
 
             {perfil?.rol === 'admin' && (
