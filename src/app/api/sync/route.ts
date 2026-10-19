@@ -85,7 +85,7 @@ async function fetchCOT(dateFrom: string, dateTo: string, regiones: string[]): P
   const fetchRegion = async (region: string): Promise<ItemSync[]> => {
     const params = new URLSearchParams({
       date_from: dateFrom, date_to: dateTo,
-      order_by: 'recent', region, status: '2', page_number: '1',
+      order_by: 'recent', region, page_number: '1',
     })
 
     const fetchPag = async (page: number) => {
