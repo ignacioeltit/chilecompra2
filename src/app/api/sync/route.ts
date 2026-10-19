@@ -206,37 +206,45 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
         'Origin': 'https://buscador.mercadopublico.cl',
       }
 
-      const searchRegion = async (region: string): Promise<ItemSync | null> => {
-        for (let page = 1; page <= 5; page++) {
-          const params = new URLSearchParams({
-            date_from: dateFrom, date_to: dateTo,
-            order_by: 'recent', region, page_number: String(page),
-          })
-          const res = await fetch(`${MP_SEARCH_URL}?${params}`, { headers, next: { revalidate: 0 } })
-          const json = await res.json()
-          const resultados: Record<string, unknown>[] = json.payload?.resultados ?? []
-          const pageCount: number = json.payload?.pageCount ?? 1
+      // Buscar primero con rango = hoy (más rápido, cubre publicaciones del día)
+      // Si no se encuentra, ampliar a 90 días.
+      const buscarEnRango = async (dfrom: string, dto: string): Promise<ItemSync | null> => {
+        const searchRegion = async (region: string): Promise<ItemSync | null> => {
+          for (let page = 1; page <= 15; page++) {
+            const params = new URLSearchParams({
+              date_from: dfrom, date_to: dto,
+              order_by: 'recent', region, page_number: String(page),
+            })
+            const res = await fetch(`${MP_SEARCH_URL}?${params}`, { headers, next: { revalidate: 0 } })
+            const json = await res.json()
+            const resultados: Record<string, unknown>[] = json.payload?.resultados ?? []
+            const pageCount: number = json.payload?.pageCount ?? 1
 
-          const r = resultados.find(x => String(x.codigo ?? '').trim().toUpperCase() === codigoNorm)
-          if (r) {
-            return {
-              codigo:            String(r.codigo),
-              nombre:            String(r.nombre ?? ''),
-              descripcion:       null,
-              fecha_publicacion: parseFechaMP(r.fecha_publicacion as string) ?? null,
-              fecha_cierre:      parseFechaMP(r.fecha_cierre as string),
-              organismo:         String(r.organismo ?? ''),
-              monto:             typeof r.monto_disponible_CLP === 'number' ? r.monto_disponible_CLP : null,
-              tipo:              'COT',
+            const r = resultados.find(x => String(x.codigo ?? '').trim().toUpperCase() === codigoNorm)
+            if (r) {
+              return {
+                codigo:            String(r.codigo),
+                nombre:            String(r.nombre ?? ''),
+                descripcion:       null,
+                fecha_publicacion: parseFechaMP(r.fecha_publicacion as string) ?? null,
+                fecha_cierre:      parseFechaMP(r.fecha_cierre as string),
+                organismo:         String(r.organismo ?? ''),
+                monto:             typeof r.monto_disponible_CLP === 'number' ? r.monto_disponible_CLP : null,
+                tipo:              'COT',
+              }
             }
+            if (page >= pageCount) break
           }
-          if (page >= pageCount) break
+          return null
         }
-        return null
+
+        const resultados = await Promise.all(TODAS_REGIONES.map(r => searchRegion(r).catch(() => null)))
+        return resultados.find(r => r !== null) ?? null
       }
 
-      const resultados = await Promise.all(TODAS_REGIONES.map(r => searchRegion(r).catch(() => null)))
-      const encontrado = resultados.find(r => r !== null)
+      const hoyStr = fmt(hoy)
+      const encontrado = await buscarEnRango(hoyStr, hoyStr)
+        ?? await buscarEnRango(dateFrom, fmt(hoy))
       if (encontrado) return encontrado
     } catch { /* ignorar */ }
     return null
@@ -354,8 +362,9 @@ export async function GET(req: NextRequest) {
     )
     const noImportadas = todas.filter(c => !setExistentes.has(c.codigo))
 
-    // Filtro separado por tipo: COT usa su propia marca, LE/LP usan la suya
-    const nuevas = (!incluirAnteriores)
+    // Filtro separado por tipo: COT usa su propia marca, LE/LP usan la suya.
+    // Si el usuario especificó date_from explícitamente, mostrar todo el rango sin filtrar por timestamp.
+    const nuevas = (!incluirAnteriores && !dateFromParam)
       ? noImportadas.filter(c => {
           const pub = parseFechaISO(c.fecha_publicacion)
           if (pub === null) return true
