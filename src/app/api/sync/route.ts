@@ -167,13 +167,15 @@ async function fetchLicitaciones(ticket: string, regiones: string[]): Promise<It
   })
 }
 
+const TODAS_REGIONES = ['15','1','2','3','4','5','13','6','7','16','8','9','14','10','11','12']
+
 // ── Buscar por código específico ─────────────────────────────
 async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync | null> {
   const tipo = tipoDesdeCodigoExterno(codigo)
 
   if (tipo === 'COT') {
-    // El buscador no permite buscar por código directamente — q busca en el nombre.
-    // Estrategia: pedir últimos 60 días (todas las páginas) y filtrar por código exacto.
+    // El buscador no permite buscar por código directamente — requiere siempre region.
+    // Estrategia: buscar en todas las regiones en paralelo (páginas 1-5 cada una).
     try {
       const tokenRes = await fetch(MP_AUTH_URL, {
         headers: { 'Accept': 'application/json', 'Origin': 'https://buscador.mercadopublico.cl' },
@@ -192,9 +194,9 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
       // al actual, no existe en el índice → retornar null de inmediato.
       if (anioInferido < hoy.getFullYear()) return null
 
-      // Para el año actual, buscar en los últimos 90 días (rápido y confiable)
-      const dateFrom = new Date(hoy.getTime() - 90 * 86400000)
-      const dateTo = hoy
+      // Para el año actual, buscar en los últimos 90 días
+      const dateFrom = fmt(new Date(hoy.getTime() - 90 * 86400000))
+      const dateTo   = fmt(hoy)
 
       const codigoNorm = codigo.trim().toUpperCase()
       const headers = {
@@ -204,31 +206,38 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
         'Origin': 'https://buscador.mercadopublico.cl',
       }
 
-      for (let page = 1; page <= 20; page++) {
-        const params = new URLSearchParams({
-          date_from: fmt(dateFrom), date_to: fmt(dateTo),
-          order_by: 'recent', page_number: String(page),
-        })
-        const res = await fetch(`${MP_SEARCH_URL}?${params}`, { headers, next: { revalidate: 0 } })
-        const json = await res.json()
-        const resultados: Record<string, unknown>[] = json.payload?.resultados ?? []
-        const pageCount: number = json.payload?.pageCount ?? 1
+      const searchRegion = async (region: string): Promise<ItemSync | null> => {
+        for (let page = 1; page <= 5; page++) {
+          const params = new URLSearchParams({
+            date_from: dateFrom, date_to: dateTo,
+            order_by: 'recent', region, page_number: String(page),
+          })
+          const res = await fetch(`${MP_SEARCH_URL}?${params}`, { headers, next: { revalidate: 0 } })
+          const json = await res.json()
+          const resultados: Record<string, unknown>[] = json.payload?.resultados ?? []
+          const pageCount: number = json.payload?.pageCount ?? 1
 
-        const r = resultados.find(x => String(x.codigo ?? '').trim().toUpperCase() === codigoNorm)
-        if (r) {
-          return {
-            codigo:            String(r.codigo),
-            nombre:            String(r.nombre ?? ''),
-            descripcion:       null,
-            fecha_publicacion: parseFechaMP(r.fecha_publicacion as string) ?? null,
-            fecha_cierre:      parseFechaMP(r.fecha_cierre as string),
-            organismo:         String(r.organismo ?? ''),
-            monto:             typeof r.monto_disponible_CLP === 'number' ? r.monto_disponible_CLP : null,
-            tipo:              'COT',
+          const r = resultados.find(x => String(x.codigo ?? '').trim().toUpperCase() === codigoNorm)
+          if (r) {
+            return {
+              codigo:            String(r.codigo),
+              nombre:            String(r.nombre ?? ''),
+              descripcion:       null,
+              fecha_publicacion: parseFechaMP(r.fecha_publicacion as string) ?? null,
+              fecha_cierre:      parseFechaMP(r.fecha_cierre as string),
+              organismo:         String(r.organismo ?? ''),
+              monto:             typeof r.monto_disponible_CLP === 'number' ? r.monto_disponible_CLP : null,
+              tipo:              'COT',
+            }
           }
+          if (page >= pageCount) break
         }
-        if (page >= pageCount) break
+        return null
       }
+
+      const resultados = await Promise.all(TODAS_REGIONES.map(r => searchRegion(r).catch(() => null)))
+      const encontrado = resultados.find(r => r !== null)
+      if (encontrado) return encontrado
     } catch { /* ignorar */ }
     return null
   }
