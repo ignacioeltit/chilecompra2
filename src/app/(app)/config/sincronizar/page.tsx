@@ -49,9 +49,11 @@ export default function SincronizarPage() {
   const router = useRouter()
   const { perfil } = useUser()
 
-  const hoy = new Date().toISOString().slice(0, 10)
+  const hoy  = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' })
+  const ayer = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' })
 
-  const [dateFrom, setDateFrom] = useState(hoy)
+  // El buscador de MP indexa con ~12-24h de delay → usar ayer como dateFrom por defecto
+  const [dateFrom, setDateFrom] = useState(ayer)
   const [dateTo, setDateTo] = useState(hoy)
   const [codigoBuscar, setCodigoBuscar] = useState('')
   const [buscandoCodigo, setBuscandoCodigo] = useState(false)

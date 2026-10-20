@@ -337,7 +337,8 @@ export async function GET(req: NextRequest) {
     } else if (ultimaPublicacionCOT) {
       dateFrom = toChileDate(ultimaPublicacionCOT)
     } else {
-      dateFrom = dateTo
+      // Sin historial previo → buscar desde ayer (MP indexa con ~12-24h de delay)
+      dateFrom = toChileDate(new Date(Date.now() - 86400000))
     }
 
     // Fetch en paralelo:
