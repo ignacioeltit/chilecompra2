@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, RefreshCw, CheckCircle, AlertCircle, Building2, Calendar, DollarSign, ExternalLink, Eye, MapPin, Search, X } from 'lucide-react'
+import { ArrowLeft, RefreshCw, CheckCircle, AlertCircle, Building2, Calendar, DollarSign, ExternalLink, Eye, MapPin, Search, X, Activity, WifiOff } from 'lucide-react'
 import { useUser } from '@/hooks/useSupabase'
 import { formatCLP, urlMercadoPublico } from '@/lib/utils/format'
 
@@ -43,6 +43,12 @@ interface ResultadoSync {
   ultimaPublicacion: string | null
   tablaExiste: boolean
   total: number
+  cotError: string | null
+}
+
+interface ApiStatus {
+  cot: { ok: boolean; msg: string }
+  le:  { ok: boolean; msg: string }
 }
 
 export default function SincronizarPage() {
@@ -73,6 +79,8 @@ export default function SincronizarPage() {
   const [resultado, setResultado] = useState<ResultadoSync | null>(null)
   const [seleccionadas, setSeleccionadas] = useState<Set<string>>(new Set())
   const [importResult, setImportResult] = useState<{ importados: number; errores: string[] } | null>(null)
+  const [apiStatus, setApiStatus] = useState<ApiStatus | null>(null)
+  const [checkingApi, setCheckingApi] = useState(false)
 
 
   if (perfil && perfil.rol !== 'admin') {
@@ -123,6 +131,20 @@ export default function SincronizarPage() {
 
   const nombreRegion = (codigo: string) =>
     REGIONES_MP.find(r => r.codigo === codigo)?.abrev ?? `R${codigo}`
+
+  async function verificarApi() {
+    setCheckingApi(true)
+    setApiStatus(null)
+    try {
+      const res = await fetch('/api/sync?check=true')
+      const json = await res.json()
+      setApiStatus(json)
+    } catch {
+      setApiStatus({ cot: { ok: false, msg: 'Sin respuesta del servidor' }, le: { ok: false, msg: 'Sin respuesta del servidor' } })
+    } finally {
+      setCheckingApi(false)
+    }
+  }
 
   async function buscarPorCodigo() {
     const codigo = codigoBuscar.trim()
@@ -399,6 +421,63 @@ export default function SincronizarPage() {
             </div>
           )}
         </div>
+
+        {/* Panel estado API */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-gray-400" />
+              <span className="text-sm font-semibold text-gray-700">Estado Mercado Público</span>
+            </div>
+            <button
+              onClick={verificarApi}
+              disabled={checkingApi}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3 w-3 ${checkingApi ? 'animate-spin' : ''}`} />
+              {checkingApi ? 'Verificando...' : 'Verificar'}
+            </button>
+          </div>
+
+          {apiStatus && (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {[
+                { label: 'Buscador (COT / Compras ágiles)', ...apiStatus.cot },
+                { label: 'API oficial (LE / LP / LR)',      ...apiStatus.le  },
+              ].map(({ label, ok, msg }) => (
+                <div key={label} className={`flex items-start gap-2 p-2.5 rounded-lg border text-xs ${ok ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  {ok
+                    ? <CheckCircle className="h-3.5 w-3.5 text-green-600 flex-shrink-0 mt-0.5" />
+                    : <WifiOff    className="h-3.5 w-3.5 text-red-500  flex-shrink-0 mt-0.5" />
+                  }
+                  <div>
+                    <p className={`font-semibold ${ok ? 'text-green-700' : 'text-red-700'}`}>{label}</p>
+                    <p className={ok ? 'text-green-600' : 'text-red-500'}>{msg}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!apiStatus && !checkingApi && (
+            <p className="mt-2 text-xs text-gray-400">Haz clic en Verificar para comprobar si el servicio de Mercado Público está disponible.</p>
+          )}
+        </div>
+
+        {/* Error COT del sync */}
+        {resultado?.cotError && (
+          <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+            <WifiOff className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Buscador de Mercado Público no disponible</p>
+              <p className="text-xs text-amber-700 mt-0.5">No se pudieron obtener Compras Ágiles (COT). El servicio externo puede estar caído o con alta carga. Las licitaciones LE/LP siguen funcionando.</p>
+              <p className="text-xs text-amber-600 mt-1 font-mono">{resultado.cotError}</p>
+              <button onClick={verificarApi} disabled={checkingApi} className="mt-2 text-xs text-amber-700 underline hover:no-underline">
+                Verificar estado de la API →
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Aviso tabla faltante */}
         {resultado && !resultado.tablaExiste && (

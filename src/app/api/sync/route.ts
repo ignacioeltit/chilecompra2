@@ -292,6 +292,53 @@ export async function GET(req: NextRequest) {
     const codigoBuscar = url.searchParams.get('codigo')?.trim()
     const ticket = process.env.MP_TICKET ?? ''
 
+    // Verificar estado de la API de MP
+    if (url.searchParams.get('check') === 'true') {
+      let cotOk = false
+      let leOk = false
+      let cotMsg = ''
+      let leMsg = ''
+      try {
+        const tokenRes = await fetch(MP_AUTH_URL, {
+          headers: { 'Accept': 'application/json', 'Origin': 'https://buscador.mercadopublico.cl' },
+          next: { revalidate: 0 },
+          signal: AbortSignal.timeout(8000),
+        })
+        if (tokenRes.ok) {
+          const token = (await tokenRes.json()).payload?.access_token
+          if (token) {
+            const r = await fetch(`${MP_SEARCH_URL}?order_by=recent&region=16&page_number=1`, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'x-api-key': MP_API_KEY,
+                'Accept': 'application/json',
+                'Origin': 'https://buscador.mercadopublico.cl',
+              },
+              next: { revalidate: 0 },
+              signal: AbortSignal.timeout(8000),
+            })
+            cotOk = r.ok
+            cotMsg = r.ok ? 'OK' : `HTTP ${r.status}`
+          } else { cotMsg = 'Token inválido' }
+        } else { cotMsg = `Auth HTTP ${tokenRes.status}` }
+      } catch (e) { cotMsg = e instanceof Error ? e.message : 'Error desconocido' }
+
+      if (ticket) {
+        try {
+          const r = await fetch(`${MP_API_URL}?ticket=${ticket}&estado=publicada&region=16`, {
+            next: { revalidate: 0 }, signal: AbortSignal.timeout(8000),
+          })
+          leOk = r.ok
+          leMsg = r.ok ? 'OK' : `HTTP ${r.status}`
+        } catch (e) { leMsg = e instanceof Error ? e.message : 'Error desconocido' }
+      } else {
+        leOk = false
+        leMsg = 'MP_TICKET no configurado'
+      }
+
+      return NextResponse.json({ cot: { ok: cotOk, msg: cotMsg }, le: { ok: leOk, msg: leMsg } })
+    }
+
     // Búsqueda por código único — retorna solo ese resultado
     if (codigoBuscar) {
       const item = await fetchPorCodigo(codigoBuscar, ticket)
@@ -344,8 +391,12 @@ export async function GET(req: NextRequest) {
     // Fetch en paralelo:
     // COT → usa date_from/date_to para filtrar por publicación
     // LE/LP → la API oficial devuelve solo las vigentes, no necesita rango de fechas
+    let cotError: string | null = null
     const [cotItems, licItems] = await Promise.all([
-      fetchCOT(dateFrom, dateTo, regiones).catch(() => [] as ItemSync[]),
+      fetchCOT(dateFrom, dateTo, regiones).catch((e) => {
+        cotError = e instanceof Error ? e.message : 'Error al consultar buscador de Mercado Público'
+        return [] as ItemSync[]
+      }),
       ticket ? fetchLicitaciones(ticket, regiones).catch(() => [] as ItemSync[]) : Promise.resolve([] as ItemSync[]),
     ])
 
@@ -408,6 +459,7 @@ export async function GET(req: NextRequest) {
       ultimaPublicacionLE: ultimaPublicacionLE?.toISOString() ?? null,
       tablaExiste,
       total: todas.length,
+      cotError,
     })
   } catch (err) {
     console.error('[sync] GET error', err)
