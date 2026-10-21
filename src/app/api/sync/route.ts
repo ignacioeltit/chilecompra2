@@ -320,8 +320,11 @@ export async function GET(req: NextRequest) {
             cotOk = r.ok
             cotMsg = r.ok ? 'OK' : `HTTP ${r.status}`
           } else { cotMsg = 'Token inválido' }
-        } else { cotMsg = `Auth HTTP ${tokenRes.status}` }
-      } catch (e) { cotMsg = e instanceof Error ? e.message : 'Error desconocido' }
+        } else { cotMsg = `Error de autenticación (HTTP ${tokenRes.status})` }
+      } catch (e) {
+        console.error('[sync/check] COT error:', e)
+        cotMsg = e instanceof Error && e.message.includes('timeout') ? 'Tiempo de espera agotado' : 'Sin respuesta'
+      }
 
       if (ticket) {
         try {
@@ -330,10 +333,13 @@ export async function GET(req: NextRequest) {
           })
           leOk = r.ok
           leMsg = r.ok ? 'OK' : `HTTP ${r.status}`
-        } catch (e) { leMsg = e instanceof Error ? e.message : 'Error desconocido' }
+        } catch (e) {
+          console.error('[sync/check] LE error:', e)
+          leMsg = e instanceof Error && e.message.includes('timeout') ? 'Tiempo de espera agotado' : 'Sin respuesta'
+        }
       } else {
         leOk = false
-        leMsg = 'MP_TICKET no configurado'
+        leMsg = 'Ticket no configurado'
       }
 
       return NextResponse.json({ cot: { ok: cotOk, msg: cotMsg }, le: { ok: leOk, msg: leMsg } })
@@ -394,7 +400,10 @@ export async function GET(req: NextRequest) {
     let cotError: string | null = null
     const [cotItems, licItems] = await Promise.all([
       fetchCOT(dateFrom, dateTo, regiones).catch((e) => {
-        cotError = e instanceof Error ? e.message : 'Error al consultar buscador de Mercado Público'
+        console.error('[sync] fetchCOT error:', e)
+        cotError = e instanceof Error && e.message.includes('timeout')
+          ? 'Tiempo de espera agotado al consultar el buscador de Mercado Público'
+          : 'El buscador de Mercado Público no está disponible en este momento'
         return [] as ItemSync[]
       }),
       ticket ? fetchLicitaciones(ticket, regiones).catch(() => [] as ItemSync[]) : Promise.resolve([] as ItemSync[]),
