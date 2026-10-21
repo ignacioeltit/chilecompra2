@@ -322,8 +322,9 @@ export async function GET(req: NextRequest) {
           } else { cotMsg = 'Token inválido' }
         } else { cotMsg = `Error de autenticación (HTTP ${tokenRes.status})` }
       } catch (e) {
-        console.error('[sync/check] COT error:', e)
-        cotMsg = e instanceof Error && e.message.includes('timeout') ? 'Tiempo de espera agotado' : 'Sin respuesta'
+        const msg = e instanceof Error ? e.message : String(e)
+        console.error('[sync/check] COT error:', e instanceof Error ? e.name : 'UnknownError', msg.replace(/https?:\/\/[^\s]*/g, '[URL]'))
+        cotMsg = msg.includes('timeout') || msg.includes('abort') ? 'Tiempo de espera agotado' : 'Sin respuesta'
       }
 
       if (ticket) {
@@ -334,8 +335,9 @@ export async function GET(req: NextRequest) {
           leOk = r.ok
           leMsg = r.ok ? 'OK' : `HTTP ${r.status}`
         } catch (e) {
-          console.error('[sync/check] LE error:', e)
-          leMsg = e instanceof Error && e.message.includes('timeout') ? 'Tiempo de espera agotado' : 'Sin respuesta'
+          const msg = e instanceof Error ? e.message : String(e)
+          console.error('[sync/check] LE error:', e instanceof Error ? e.name : 'UnknownError', msg.replace(/https?:\/\/[^\s]*/g, '[URL]'))
+          leMsg = msg.includes('timeout') || msg.includes('abort') ? 'Tiempo de espera agotado' : 'Sin respuesta'
         }
       } else {
         leOk = false
@@ -400,8 +402,9 @@ export async function GET(req: NextRequest) {
     let cotError: string | null = null
     const [cotItems, licItems] = await Promise.all([
       fetchCOT(dateFrom, dateTo, regiones).catch((e) => {
-        console.error('[sync] fetchCOT error:', e)
-        cotError = e instanceof Error && e.message.includes('timeout')
+        const msg = e instanceof Error ? e.message : String(e)
+        console.error('[sync] fetchCOT error:', e instanceof Error ? e.name : 'UnknownError', msg.replace(/https?:\/\/[^\s]*/g, '[URL]'))
+        cotError = msg.includes('timeout') || msg.includes('abort')
           ? 'Tiempo de espera agotado al consultar el buscador de Mercado Público'
           : 'El buscador de Mercado Público no está disponible en este momento'
         return [] as ItemSync[]
