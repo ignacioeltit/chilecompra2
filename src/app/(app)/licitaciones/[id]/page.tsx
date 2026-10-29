@@ -924,7 +924,7 @@ function GestionFinanciera({
         />
 
         {/* Facturas parciales */}
-        <FacturasSection licId={lic.id} orgId={lic.org_id} montoOC={lic.monto_clp} />
+        <FacturasSection licId={lic.id} orgId={lic.org_id} montoOC={lic.monto_clp} estadoOc={lic.estado_oc} onEstadoOC={(e) => onGuardar('estado_oc', e)} />
       </div>
     </div>
   )
@@ -932,7 +932,7 @@ function GestionFinanciera({
 
 const METODOS_PAGO = ['Transferencia bancaria', 'Confirming Banco Estado', 'Cheque', 'Efectivo', 'Otro']
 
-function FacturasSection({ licId, orgId, montoOC }: { licId: string; orgId: string; montoOC: number | null }) {
+function FacturasSection({ licId, orgId, montoOC, estadoOc, onEstadoOC }: { licId: string; orgId: string; montoOC: number | null; estadoOc: EstadoOC | null; onEstadoOC?: (estado: EstadoOC) => Promise<void> | void }) {
   const supabase = createClient()
   const [facturas, setFacturas] = useState<Factura[]>([])
   const [cargando, setCargando] = useState(true)
@@ -941,16 +941,39 @@ function FacturasSection({ licId, orgId, montoOC }: { licId: string; orgId: stri
   const [form, setForm] = useState({ numero: '', monto: '', fecha_emision: '', fecha_pago: '', metodo_pago: '', notas: '' })
   const [error, setError] = useState<string | null>(null)
 
-  async function cargar() {
+  async function cargar(): Promise<Factura[]> {
     const { data } = await supabase.from('facturas').select('*').eq('licitacion_id', licId).order('fecha_emision', { ascending: true })
-    setFacturas((data as Factura[]) ?? [])
+    const fs = (data as Factura[]) ?? []
+    setFacturas(fs)
     setCargando(false)
+    return fs
   }
 
   useEffect(() => { void cargar() }, [licId])
 
   const totalFacturado = facturas.reduce((s, f) => s + f.monto, 0)
   const saldo = (montoOC ?? 0) - totalFacturado
+
+  // Sincroniza estado_oc de la licitación según las facturas: cuando está todo
+  // facturado y pagado → 'pagada'; con al menos una factura y estado anterior a
+  // 'facturada' → 'facturada'. Solo avanza (no degrada estados manuales).
+  // Usa onEstadoOC (handleCampoInline del padre), que ya actualiza con el
+  // cliente browser y refresca la licitación.
+  async function sincronizarEstadoOC(fs: Factura[]) {
+    if (montoOC == null || fs.length === 0) return
+    const PASOS: EstadoOC[] = ['emitida', 'aceptada', 'facturada', 'pagada']
+    const facturado = fs.reduce((s, f) => s + f.monto, 0)
+    const todoFacturado = facturado >= montoOC - 1 // tolerancia de redondeo
+    const todoPagado = fs.every((f) => !!f.fecha_pago)
+    const idxActual = estadoOc ? PASOS.indexOf(estadoOc) : -1
+
+    let target: EstadoOC | null = null
+    if (todoFacturado && todoPagado) target = 'pagada'
+    else if (idxActual < PASOS.indexOf('facturada')) target = 'facturada'
+
+    if (!target || target === estadoOc) return
+    await onEstadoOC?.(target)
+  }
 
   async function guardarFactura() {
     if (!form.numero || !form.monto || !form.fecha_emision) { setError('Número, monto y fecha son obligatorios'); return }
@@ -966,18 +989,18 @@ function FacturasSection({ licId, orgId, montoOC }: { licId: string; orgId: stri
     if (err) { setError(err.message); setGuardando(false); return }
     setForm({ numero: '', monto: '', fecha_emision: '', fecha_pago: '', metodo_pago: '', notas: '' })
     setAgregando(false); setGuardando(false)
-    await cargar()
+    await sincronizarEstadoOC(await cargar())
   }
 
   async function marcarPagada(id: string, fecha: string) {
     await supabase.from('facturas').update({ fecha_pago: fecha }).eq('id', id)
-    await cargar()
+    await sincronizarEstadoOC(await cargar())
   }
 
   async function eliminarFactura(id: string) {
     if (!confirm('¿Eliminar esta factura?')) return
     await supabase.from('facturas').delete().eq('id', id)
-    await cargar()
+    await sincronizarEstadoOC(await cargar())
   }
 
   const fmt = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
