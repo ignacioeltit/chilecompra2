@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, List, Calendar, BarChart2,
   Settings, LogOut, Upload, RefreshCw, MoreHorizontal,
-  Building2, X, Search, Command, Receipt
+  Building2, X, Search, Command, Receipt, Landmark
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils/cn'
@@ -23,7 +23,8 @@ const NAV = [
 
 // Aparece en sidebar desktop y panel "Más" móvil, pero NO en la barra inferior
 const NAV_EXTRA = [
-  { href: '/facturas', label: 'Facturas', icon: Receipt },
+  { href: '/facturas',      label: 'Facturas',      icon: Receipt },
+  { href: '/conciliacion',  label: 'Conciliación',  icon: Landmark },
 ]
 
 export function Sidebar() {
