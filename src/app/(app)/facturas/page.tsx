@@ -80,9 +80,9 @@ export default function FacturasPage() {
 
   const filtradas = useMemo(() => {
     let lista = filtro === 'inpagas'
-      ? facturas.filter(f => !f.fecha_pago)
+      ? facturas.filter(f => !f.fecha_pago && !f.anulada)
       : filtro === 'cobradas'
-      ? facturas.filter(f => f.fecha_pago)
+      ? facturas.filter(f => f.fecha_pago && !f.anulada)
       : facturas
 
     if (busqueda.trim()) {
@@ -98,9 +98,9 @@ export default function FacturasPage() {
     return lista
   }, [facturas, filtro, busqueda])
 
-  const nInpagas  = facturas.filter(f => !f.fecha_pago).length
-  const nCobradas = facturas.filter(f =>  f.fecha_pago).length
-  const totalInpago = facturas.filter(f => !f.fecha_pago).reduce((s, f) => s + f.monto, 0)
+  const nInpagas  = facturas.filter(f => !f.fecha_pago && !f.anulada).length
+  const nCobradas = facturas.filter(f =>  f.fecha_pago && !f.anulada).length
+  const totalInpago = facturas.filter(f => !f.fecha_pago && !f.anulada).reduce((s, f) => s + f.monto, 0)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -195,7 +195,11 @@ export default function FacturasPage() {
                           <span className="text-lg font-bold text-gray-900">
                             {formatCLP(f.monto)}
                           </span>
-                          {pagada ? (
+                          {f.anulada ? (
+                            <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
+                              <XCircle className="h-3 w-3" /> Anulada
+                            </span>
+                          ) : pagada ? (
                             <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
                               <CheckCircle className="h-3 w-3" /> Cobrada
                             </span>
@@ -237,7 +241,7 @@ export default function FacturasPage() {
                       </div>
 
                       {/* Acción marcar pagada */}
-                      {!pagada && (
+                      {!pagada && !f.anulada && (
                         <div className="flex flex-col gap-2 sm:items-end shrink-0 sm:min-w-[220px]">
                           <input
                             type="date"

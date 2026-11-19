@@ -112,6 +112,7 @@ export interface Factura {
   fecha_pago: string | null
   metodo_pago: string | null
   notas: string | null
+  anulada: boolean
   creado_en: string
 }
 
