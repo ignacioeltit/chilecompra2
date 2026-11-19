@@ -955,33 +955,14 @@ function FacturasSection({ licId, orgId, montoOC, estadoOc, onEstadoOC }: { licI
   const totalFacturado = facturas.reduce((s, f) => s + f.monto, 0)
   const saldo = (montoOC ?? 0) - totalFacturado
 
-  // Sincroniza estado_oc de la licitación según las facturas: cuando está todo
-  // facturado y pagado → 'pagada'; con al menos una factura y estado anterior a
-  // 'facturada' → 'facturada'. Solo avanza (no degrada estados manuales).
-  // Usa onEstadoOC (handleCampoInline del padre), que ya actualiza con el
-  // cliente browser y refresca la licitación.
-  async function sincronizarEstadoOC(fs: Factura[]) {
-    if (montoOC == null || fs.length === 0) return
-    const PASOS: EstadoOC[] = ['emitida', 'aceptada', 'facturada', 'pagada']
-    const facturado = fs.reduce((s, f) => s + f.monto, 0)
-    const todoFacturado = facturado >= montoOC - 1 // tolerancia de redondeo
-    const todoPagado = fs.every((f) => !!f.fecha_pago)
-    const idxActual = estadoOc ? PASOS.indexOf(estadoOc) : -1
-
-    let target: EstadoOC | null = null
-    if (todoFacturado && todoPagado) target = 'pagada'
-    else if (idxActual < PASOS.indexOf('facturada')) target = 'facturada'
-
-    if (!target || target === estadoOc) return
-    await onEstadoOC?.(target)
-  }
-
   async function guardarFactura() {
     if (!form.numero || !form.monto || !form.fecha_emision) { setError('Número, monto y fecha son obligatorios'); return }
+    const montoInt = parseCLP(form.monto)
+    if (!montoInt) { setError('Monto inválido — ingrese un entero en pesos chilenos, ej: 660.475'); return }
     setGuardando(true); setError(null)
     const { error: err } = await supabase.from('facturas').insert({
       org_id: orgId, licitacion_id: licId,
-      numero: form.numero, monto: parseCLP(form.monto) ?? 0,
+      numero: form.numero, monto: montoInt,
       fecha_emision: form.fecha_emision,
       fecha_pago: form.fecha_pago || null,
       metodo_pago: form.metodo_pago || null,
@@ -990,21 +971,21 @@ function FacturasSection({ licId, orgId, montoOC, estadoOc, onEstadoOC }: { licI
     if (err) { setError(err.message); setGuardando(false); return }
     setForm({ numero: '', monto: '', fecha_emision: '', fecha_pago: '', metodo_pago: '', notas: '' })
     setAgregando(false); setGuardando(false)
-    await sincronizarEstadoOC(await cargar())
+    await cargar()
   }
 
   async function marcarPagada(id: string, fecha: string) {
     await supabase.from('facturas').update({ fecha_pago: fecha }).eq('id', id)
-    await sincronizarEstadoOC(await cargar())
+    await cargar()
   }
 
   async function eliminarFactura(id: string) {
     if (!confirm('¿Eliminar esta factura?')) return
     await supabase.from('facturas').delete().eq('id', id)
-    await sincronizarEstadoOC(await cargar())
+    await cargar()
   }
 
-  const fmt = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
+  const fmt = formatCLP
   const fmtFecha = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('es-CL')
 
   return (
