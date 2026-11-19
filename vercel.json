@@ -3,6 +3,10 @@
     {
       "path": "/api/notifications",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/sync/ordenes-compra",
+      "schedule": "0 9 * * *"
     }
   ]
 }
