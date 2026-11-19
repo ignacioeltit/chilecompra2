@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
+const supabase = createClient()
+
 interface Cuenta {
   id: string
   alias: string | null
@@ -49,7 +51,6 @@ function diasDesde(iso: string) {
 }
 
 export default function ConciliacionPage() {
-  const supabase = createClient()
   const [cuentas, setCuentas] = useState<Cuenta[]>([])
   const [cuentaId, setCuentaId] = useState<string>('')
   const [pestaña, setPestaña] = useState<Pestaña>('calzados')
@@ -67,7 +68,8 @@ export default function ConciliacionPage() {
       setCuentas(data ?? [])
       if (data && data.length > 0) setCuentaId(data[0].id)
     })
-  }, [supabase])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const cargar = useCallback(async () => {
     if (!cuentaId) return
