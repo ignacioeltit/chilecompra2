@@ -17,7 +17,10 @@ EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
 -- ── Vista de cobranza por licitación ──────────────────────────
-CREATE OR REPLACE VIEW v_licitacion_cobranza AS
+-- security_invoker=true: la vista hereda los permisos del llamador,
+-- por lo que el RLS de licitaciones y facturas se aplica normalmente.
+CREATE OR REPLACE VIEW v_licitacion_cobranza
+  WITH (security_invoker = true) AS
 SELECT
   l.id,
   l.org_id,
@@ -96,6 +99,10 @@ WHERE l.numero_factura IS NOT NULL
     WHERE f.licitacion_id = l.id
       AND f.numero = l.numero_factura
   );
+
+-- Permisos: solo rol authenticated; anon no debe ver datos de cobranza
+REVOKE ALL ON v_licitacion_cobranza FROM anon;
+GRANT SELECT ON v_licitacion_cobranza TO authenticated;
 
 -- Nota: numero_factura, fecha_emision_factura y fecha_pago de licitaciones
 -- quedan DEPRECADOS (no se escriben ni leen desde la app). No se borran todavía.
