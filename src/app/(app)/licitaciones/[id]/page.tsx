@@ -9,6 +9,7 @@ import { calcularCategoriaAlerta } from '@/lib/utils/categoria-alerta'
 import { BadgeAlerta } from '@/components/ui/badge-alerta'
 import { actualizarInstitucionLicitacion } from '@/app/actions/licitaciones'
 import { formatCLP, formatFechaHora, urlMercadoPublico } from '@/lib/utils/format'
+import { parseCLP } from '@/lib/clp'
 import ReactMarkdown from 'react-markdown'
 
 export default function DetalleLicitacionPage() {
@@ -910,8 +911,8 @@ function GestionFinanciera({
           placeholder="Ej: 1500000"
           tipo="number"
           guardando={guardando === 'monto_clp'}
-          onGuardar={(v) => onGuardar('monto_clp', v ? Number(v) : null)}
-          formatear={(v) => v ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(Number(v)) : '—'}
+          onGuardar={(v) => onGuardar('monto_clp', v ? parseCLP(v) : null)}
+          formatear={(v) => v ? formatCLP(parseCLP(v) ?? 0) : '—'}
         />
 
         {/* Orden de compra */}
@@ -980,7 +981,7 @@ function FacturasSection({ licId, orgId, montoOC, estadoOc, onEstadoOC }: { licI
     setGuardando(true); setError(null)
     const { error: err } = await supabase.from('facturas').insert({
       org_id: orgId, licitacion_id: licId,
-      numero: form.numero, monto: Number(form.monto),
+      numero: form.numero, monto: parseCLP(form.monto) ?? 0,
       fecha_emision: form.fecha_emision,
       fecha_pago: form.fecha_pago || null,
       metodo_pago: form.metodo_pago || null,

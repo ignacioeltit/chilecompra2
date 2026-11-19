@@ -7,7 +7,7 @@ const TZ = 'America/Santiago'
 // ── Buscador (Compras ágiles / COT) ──────────────────────────
 const MP_AUTH_URL    = 'https://servicios-prd.mercadopublico.cl/v1/auth/publico'
 const MP_SEARCH_URL  = 'https://api.buscador.mercadopublico.cl/compra-agil'
-const MP_API_KEY     = 'e93089e4-437c-4723-b343-4fa20045e3bc'
+const MP_API_KEY     = process.env.MP_BUSCADOR_API_KEY ?? ''
 
 // ── API oficial (LE / LP / LR / L1) ─────────────────────────
 const MP_API_URL     = 'https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json'

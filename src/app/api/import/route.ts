@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 import { createClient } from '@/lib/supabase/server'
+import { parseCLP } from '@/lib/clp'
 import { mkdir, appendFile } from 'fs/promises'
 import path from 'path'
 
@@ -201,7 +202,7 @@ export async function POST(req: NextRequest) {
         const estado   = normalizar(COL_ESTADO ? celda(row, COL_ESTADO) : null, ESTADO_MAP) ?? 'sin_definir'
         const resultado = normalizar(COL_RESULT ? celda(row, COL_RESULT) : null, RESULTADO_MAP)
         const oc        = COL_OC ? String(celda(row, COL_OC) ?? '').trim() || null : null
-        const monto     = COL_MONTO ? (Number(celda(row, COL_MONTO)) || null) : null
+        const monto     = COL_MONTO ? (parseCLP(celda(row, COL_MONTO) as string) ?? null) : null
         const cierre2   = COL_CIERRE2 ? parsearFecha(celda(row, COL_CIERRE2)) : null
         const publi     = COL_PUBLI  ? parsearFecha(celda(row, COL_PUBLI)) : null
 
