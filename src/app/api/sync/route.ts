@@ -8,6 +8,9 @@ const TZ = 'America/Santiago'
 const MP_AUTH_URL    = 'https://servicios-prd.mercadopublico.cl/v1/auth/publico'
 const MP_SEARCH_URL  = 'https://api.buscador.mercadopublico.cl/compra-agil'
 const MP_API_KEY     = process.env.MP_BUSCADOR_API_KEY ?? ''
+if (!MP_API_KEY) {
+  console.error('[sync] MP_BUSCADOR_API_KEY no configurada — las compras ágiles (COT) no funcionarán')
+}
 
 // ── API oficial (LE / LP / LR / L1) ─────────────────────────
 const MP_API_URL     = 'https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json'
@@ -357,7 +360,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ item, yaExiste: !!existe })
     }
 
-    const dateTo = url.searchParams.get('date_to') ?? new Date().toISOString().slice(0, 10)
+    // Usar fecha Chile de mañana como date_to para incluir todos los items de hoy
+    // independiente de si el buscador trata date_to como inclusive o exclusive.
+    // new Date().toISOString() da fecha UTC — puede diferir de la fecha Chile.
+    const dateTo = url.searchParams.get('date_to')
+      ?? new Date(Date.now() + 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' })
     const incluirAnteriores = url.searchParams.get('incluir_anteriores') === 'true'
     const regionesParam = url.searchParams.get('regiones')
     const regiones = regionesParam ? regionesParam.split(',').filter(Boolean) : REGIONES_DEFAULT
@@ -399,9 +406,11 @@ export async function GET(req: NextRequest) {
     // Fetch en paralelo:
     // COT → usa date_from/date_to para filtrar por publicación
     // LE/LP → la API oficial devuelve solo las vigentes, no necesita rango de fechas
-    let cotError: string | null = null
+    let cotError: string | null = !MP_API_KEY
+      ? 'MP_BUSCADOR_API_KEY no configurada en las variables de entorno del servidor'
+      : null
     const [cotItems, licItems] = await Promise.all([
-      fetchCOT(dateFrom, dateTo, regiones).catch((e) => {
+      (MP_API_KEY ? fetchCOT(dateFrom, dateTo, regiones) : Promise.resolve([] as ItemSync[])).catch((e) => {
         const msg = e instanceof Error ? e.message : String(e)
         console.error('[sync] fetchCOT error:', e instanceof Error ? e.name : 'UnknownError', msg.replace(/https?:\/\/[^\s]*/g, '[URL]'))
         cotError = msg.includes('timeout') || msg.includes('abort')
