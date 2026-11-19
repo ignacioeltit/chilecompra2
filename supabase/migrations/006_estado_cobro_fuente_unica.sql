@@ -87,13 +87,15 @@ SELECT
   l.org_id,
   l.id,
   l.numero_factura,
-  COALESCE(l.monto_clp, 0),
+  l.monto_clp,
   COALESCE(l.fecha_emision_factura::date, l.creado_en::date),
   l.fecha_pago::date,
   NULL,
   'migrada desde licitaciones'
 FROM licitaciones l
 WHERE l.numero_factura IS NOT NULL
+  AND l.monto_clp IS NOT NULL
+  AND l.monto_clp > 0
   AND NOT EXISTS (
     SELECT 1 FROM facturas f
     WHERE f.licitacion_id = l.id
