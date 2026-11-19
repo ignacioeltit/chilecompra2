@@ -113,6 +113,7 @@ export default function ConciliacionPage() {
       .from('facturas')
       .select('id, numero, monto, fecha_emision, licitaciones(institucion)')
       .is('fecha_pago', null)
+      .eq('anulada', false)
       .lt('fecha_emision', hace30)
       .order('fecha_emision')
       .limit(50)

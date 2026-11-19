@@ -67,6 +67,7 @@ export async function POST(req: NextRequest) {
     .select('id, monto, fecha_emision, fecha_pago')
     .eq('org_id', orgId)
     .is('fecha_pago', null)
+    .eq('anulada', false)
 
   const facturas: FacturaCandidato[] = (facRows ?? []).map((r: Record<string,unknown>) => ({
     id:                  r.id as string,
