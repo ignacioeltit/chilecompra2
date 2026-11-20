@@ -12,8 +12,9 @@ if (!MP_API_KEY) {
   console.error('[sync] MP_BUSCADOR_API_KEY no configurada — las compras ágiles (COT) no funcionarán')
 }
 
-// ── API oficial (LE / LP / LR / L1) ─────────────────────────
+// ── API oficial (LE / LP / LR / L1 / OC) ───────────────────
 const MP_API_URL     = 'https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json'
+const MP_OC_URL      = 'https://api.mercadopublico.cl/servicios/v1/publico/ordenesdecompra.json'
 
 const REGIONES_DEFAULT = ['16'] // Ñuble
 
@@ -271,9 +272,7 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
       if (reciente) return reciente
 
       // Pass 2: ventanas mensuales en paralelo con cancelación temprana.
-      // Un AbortController compartido cancela todas las ventanas restantes
-      // en cuanto cualquiera encuentre el código → la función termina en ~5s
-      // en vez de esperar que todas las ventanas agoten sus páginas (~20-30s).
+      // Límite de 45s para evitar 503 en Vercel (timeout de función = 60s).
       const ventanas: Array<{ from: string; to: string }> = []
       let cursor = new Date(hoy.getTime() - 7 * 86400000)
       const inicio = new Date(`${anioInferido}-01-01`)
@@ -285,30 +284,69 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
         if (cursor <= inicio) break
       }
 
-      const encontrado = await new Promise<ItemSync | null>((resolveAll) => {
-        const ctrl = new AbortController()
-        let resolved = false
-        let pending2 = ventanas.length
+      const encontrado = await Promise.race([
+        new Promise<ItemSync | null>((resolveAll) => {
+          const ctrl = new AbortController()
+          let resolved = false
+          let pending2 = ventanas.length
 
-        ventanas.forEach(v => {
-          buscarEnRango(v.from, v.to, ctrl.signal).then(r => {
-            pending2--
-            if (r && !resolved) {
-              resolved = true
-              ctrl.abort()
-              resolveAll(r)
-            } else if (pending2 === 0 && !resolved) {
-              resolveAll(null)
-            }
-          }).catch(() => {
-            pending2--
-            if (pending2 === 0 && !resolved) resolveAll(null)
+          ventanas.forEach(v => {
+            buscarEnRango(v.from, v.to, ctrl.signal).then(r => {
+              pending2--
+              if (r && !resolved) {
+                resolved = true
+                ctrl.abort()
+                resolveAll(r)
+              } else if (pending2 === 0 && !resolved) {
+                resolveAll(null)
+              }
+            }).catch(() => {
+              pending2--
+              if (pending2 === 0 && !resolved) resolveAll(null)
+            })
           })
-        })
-      })
+        }),
+        new Promise<null>(res => setTimeout(() => res(null), 45000)),
+      ])
 
       if (encontrado) return encontrado
     } catch { /* ignorar */ }
+
+    // Fallback: buscar en API oficial de órdenes de compra por código directo.
+    // Cubre COTs históricas que ya no están en el índice del Buscador.
+    if (ticket) {
+      try {
+        const res = await fetch(
+          `${MP_OC_URL}?ticket=${ticket}&codigo=${encodeURIComponent(codigo)}`,
+          { next: { revalidate: 0 }, signal: AbortSignal.timeout(10000) },
+        )
+        const json = await res.json()
+        const listado: Record<string, unknown>[] = json.Listado ?? []
+        const r = listado[0]
+        if (r) {
+          return {
+            codigo:            String(r.CodigoExterno ?? r.Numero ?? codigo),
+            nombre:            String(r.Nombre ?? ''),
+            descripcion:       r.Descripcion ? String(r.Descripcion) : null,
+            fecha_publicacion: parseFechaMP(
+              (r.Fechas as Record<string, string> | null)?.FechaEnvioOrden
+                ?? (r.Fechas as Record<string, string> | null)?.FechaPublicacion
+            ) ?? null,
+            fecha_cierre:      parseFechaMP(
+              (r.Fechas as Record<string, string> | null)?.FechaCierre
+            ),
+            organismo:         String(
+              (r.Comprador as Record<string, string> | null)?.NombreOrganismo
+              ?? (r.Comprador as Record<string, string> | null)?.NombreUnidad
+              ?? ''
+            ),
+            monto:             typeof r.MontoTotal === 'number' ? r.MontoTotal : null,
+            tipo:              'COT' as const,
+          }
+        }
+      } catch { /* ignorar */ }
+    }
+
     return null
   }
 
