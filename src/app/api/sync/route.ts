@@ -197,8 +197,8 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
       // al actual, no existe en el índice → retornar null de inmediato.
       if (anioInferido < hoy.getFullYear()) return null
 
-      // Para el año actual, buscar en los últimos 14 días (COTs son recientes)
-      const dateFrom = fmt(new Date(hoy.getTime() - 14 * 86400000))
+      // Rango amplio: desde el 1 de enero del año inferido hasta hoy
+      const dateFrom = `${anioInferido}-01-01`
       const dateTo   = fmt(hoy)
 
       const codigoNorm = codigo.trim().toUpperCase()
@@ -255,9 +255,11 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
         })
       }
 
-      const hoyStr = fmt(hoy)
-      const encontrado = await buscarEnRango(hoyStr, hoyStr)
-        ?? await buscarEnRango(dateFrom, dateTo)
+      // Buscar primero en los últimos 7 días (rápido para COTs recientes),
+      // luego en el año completo si no se encontró.
+      const hace7 = fmt(new Date(hoy.getTime() - 7 * 86400000))
+      const encontrado = await buscarEnRango(hace7, dateTo)
+        ?? await buscarEnRango(dateFrom, hace7)
       if (encontrado) return encontrado
     } catch { /* ignorar */ }
     return null
