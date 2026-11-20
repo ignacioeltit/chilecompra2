@@ -255,11 +255,26 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
         })
       }
 
-      // Buscar primero en los últimos 7 días (rápido para COTs recientes),
-      // luego en el año completo si no se encontró.
+      // Pass 1: últimos 7 días (rápido para COTs muy recientes)
       const hace7 = fmt(new Date(hoy.getTime() - 7 * 86400000))
-      const encontrado = await buscarEnRango(hace7, dateTo)
-        ?? await buscarEnRango(dateFrom, hace7)
+      const reciente = await buscarEnRango(hace7, dateTo)
+      if (reciente) return reciente
+
+      // Pass 2: buscar en ventanas mensuales (mes 1-11 del año en paralelo).
+      // Con order_by:'recent' dentro de un mes, el código aparece en las primeras páginas.
+      // Paralelo → ~20s total vs ~60s+ secuencial sobre el año completo.
+      const ventanas: Array<{ from: string; to: string }> = []
+      let cursor = new Date(hoy.getTime() - 7 * 86400000) // comienza donde termina pass 1
+      const inicio = new Date(`${anioInferido}-01-01`)
+      while (cursor > inicio) {
+        const to = fmt(cursor)
+        cursor = new Date(cursor.getTime() - 30 * 86400000)
+        const from = cursor < inicio ? fmt(inicio) : fmt(cursor)
+        ventanas.push({ from, to })
+        if (cursor <= inicio) break
+      }
+      const resultados2 = await Promise.all(ventanas.map(v => buscarEnRango(v.from, v.to)))
+      const encontrado = resultados2.find(r => r !== null) ?? null
       if (encontrado) return encontrado
     } catch { /* ignorar */ }
     return null
