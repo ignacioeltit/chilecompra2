@@ -209,22 +209,28 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
         'Origin': 'https://buscador.mercadopublico.cl',
       }
 
-      // Buscar con race: sale en cuanto cualquier región encuentre el código.
-      // Máx 5 páginas por región (reducido desde 15 para evitar timeouts).
-      const buscarEnRango = (dfrom: string, dto: string): Promise<ItemSync | null> => {
+      // Buscar en un rango de fechas: 16 regiones en paralelo, sale al primer hallazgo.
+      // signal: AbortSignal opcional — aborta fetches en curso cuando se encuentra en otra ventana.
+      const buscarEnRango = (dfrom: string, dto: string, signal?: AbortSignal): Promise<ItemSync | null> => {
         return new Promise<ItemSync | null>((resolve) => {
+          if (signal?.aborted) { resolve(null); return }
+          const onAbort = () => resolve(null)
+          signal?.addEventListener('abort', onAbort, { once: true })
+
           let pending = TODAS_REGIONES.length
           let found = false
 
           const searchRegion = async (region: string): Promise<void> => {
             try {
               for (let page = 1; page <= 5; page++) {
-                if (found) break
+                if (found || signal?.aborted) break
                 const params = new URLSearchParams({
                   date_from: dfrom, date_to: dto,
                   order_by: 'recent', region, page_number: String(page),
                 })
-                const res = await fetch(`${MP_SEARCH_URL}?${params}`, { headers, next: { revalidate: 0 } })
+                const res = await fetch(`${MP_SEARCH_URL}?${params}`, {
+                  headers, next: { revalidate: 0 }, signal,
+                })
                 const json = await res.json()
                 const resultados: Record<string, unknown>[] = json.payload?.resultados ?? []
                 const pageCount: number = json.payload?.pageCount ?? 1
@@ -232,6 +238,7 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
                 const r = resultados.find(x => String(x.codigo ?? '').trim().toUpperCase() === codigoNorm)
                 if (r && !found) {
                   found = true
+                  signal?.removeEventListener('abort', onAbort)
                   resolve({
                     codigo:            String(r.codigo),
                     nombre:            String(r.nombre ?? ''),
@@ -246,9 +253,12 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
                 }
                 if (page >= pageCount) break
               }
-            } catch { /* ignorar error de región */ }
+            } catch { /* ignorar error de región o abort */ }
             pending--
-            if (!found && pending === 0) resolve(null)
+            if (!found && pending === 0) {
+              signal?.removeEventListener('abort', onAbort)
+              resolve(null)
+            }
           }
 
           TODAS_REGIONES.forEach(r => { void searchRegion(r) })
@@ -260,11 +270,12 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
       const reciente = await buscarEnRango(hace7, dateTo)
       if (reciente) return reciente
 
-      // Pass 2: buscar en ventanas mensuales (mes 1-11 del año en paralelo).
-      // Con order_by:'recent' dentro de un mes, el código aparece en las primeras páginas.
-      // Paralelo → ~20s total vs ~60s+ secuencial sobre el año completo.
+      // Pass 2: ventanas mensuales en paralelo con cancelación temprana.
+      // Un AbortController compartido cancela todas las ventanas restantes
+      // en cuanto cualquiera encuentre el código → la función termina en ~5s
+      // en vez de esperar que todas las ventanas agoten sus páginas (~20-30s).
       const ventanas: Array<{ from: string; to: string }> = []
-      let cursor = new Date(hoy.getTime() - 7 * 86400000) // comienza donde termina pass 1
+      let cursor = new Date(hoy.getTime() - 7 * 86400000)
       const inicio = new Date(`${anioInferido}-01-01`)
       while (cursor > inicio) {
         const to = fmt(cursor)
@@ -273,8 +284,29 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
         ventanas.push({ from, to })
         if (cursor <= inicio) break
       }
-      const resultados2 = await Promise.all(ventanas.map(v => buscarEnRango(v.from, v.to)))
-      const encontrado = resultados2.find(r => r !== null) ?? null
+
+      const encontrado = await new Promise<ItemSync | null>((resolveAll) => {
+        const ctrl = new AbortController()
+        let resolved = false
+        let pending2 = ventanas.length
+
+        ventanas.forEach(v => {
+          buscarEnRango(v.from, v.to, ctrl.signal).then(r => {
+            pending2--
+            if (r && !resolved) {
+              resolved = true
+              ctrl.abort()
+              resolveAll(r)
+            } else if (pending2 === 0 && !resolved) {
+              resolveAll(null)
+            }
+          }).catch(() => {
+            pending2--
+            if (pending2 === 0 && !resolved) resolveAll(null)
+          })
+        })
+      })
+
       if (encontrado) return encontrado
     } catch { /* ignorar */ }
     return null
