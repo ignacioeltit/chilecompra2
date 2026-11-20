@@ -178,6 +178,34 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
   const tipo = tipoDesdeCodigoExterno(codigo)
 
   if (tipo === 'COT') {
+    // Intentar primero con API de órdenes de compra (lookup directo, ~1-2s).
+    // Cubre COTs históricas que ya no están en el índice del Buscador.
+    if (ticket) {
+      try {
+        const ocRes = await fetch(
+          `${MP_OC_URL}?ticket=${ticket}&codigo=${encodeURIComponent(codigo)}`,
+          { next: { revalidate: 0 }, signal: AbortSignal.timeout(10000) },
+        )
+        const ocJson = await ocRes.json()
+        const ocListado: Record<string, unknown>[] = ocJson.Listado ?? []
+        const ocr = ocListado[0]
+        if (ocr) {
+          const ocFechas = ocr.Fechas as Record<string, string> | null
+          const ocComprador = ocr.Comprador as Record<string, string> | null
+          return {
+            codigo:            String(ocr.CodigoExterno ?? ocr.Numero ?? codigo),
+            nombre:            String(ocr.Nombre ?? ''),
+            descripcion:       ocr.Descripcion ? String(ocr.Descripcion) : null,
+            fecha_publicacion: parseFechaMP(ocFechas?.FechaEnvioOrden ?? ocFechas?.FechaCreacion ?? ocFechas?.FechaPublicacion) ?? null,
+            fecha_cierre:      parseFechaMP(ocFechas?.FechaCierre ?? ocFechas?.FechaEntregaEstimada),
+            organismo:         String(ocComprador?.NombreOrganismo ?? ocComprador?.NombreUnidad ?? ''),
+            monto:             typeof ocr.MontoTotal === 'number' ? ocr.MontoTotal : null,
+            tipo:              'COT' as const,
+          }
+        }
+      } catch { /* si falla OC API, intentar Buscador */ }
+    }
+
     // El buscador no permite buscar por código directamente — requiere siempre region.
     // Estrategia: buscar en todas las regiones en paralelo (páginas 1-5 cada una).
     try {
@@ -311,41 +339,6 @@ async function fetchPorCodigo(codigo: string, ticket: string): Promise<ItemSync 
 
       if (encontrado) return encontrado
     } catch { /* ignorar */ }
-
-    // Fallback: buscar en API oficial de órdenes de compra por código directo.
-    // Cubre COTs históricas que ya no están en el índice del Buscador.
-    if (ticket) {
-      try {
-        const res = await fetch(
-          `${MP_OC_URL}?ticket=${ticket}&codigo=${encodeURIComponent(codigo)}`,
-          { next: { revalidate: 0 }, signal: AbortSignal.timeout(10000) },
-        )
-        const json = await res.json()
-        const listado: Record<string, unknown>[] = json.Listado ?? []
-        const r = listado[0]
-        if (r) {
-          return {
-            codigo:            String(r.CodigoExterno ?? r.Numero ?? codigo),
-            nombre:            String(r.Nombre ?? ''),
-            descripcion:       r.Descripcion ? String(r.Descripcion) : null,
-            fecha_publicacion: parseFechaMP(
-              (r.Fechas as Record<string, string> | null)?.FechaEnvioOrden
-                ?? (r.Fechas as Record<string, string> | null)?.FechaPublicacion
-            ) ?? null,
-            fecha_cierre:      parseFechaMP(
-              (r.Fechas as Record<string, string> | null)?.FechaCierre
-            ),
-            organismo:         String(
-              (r.Comprador as Record<string, string> | null)?.NombreOrganismo
-              ?? (r.Comprador as Record<string, string> | null)?.NombreUnidad
-              ?? ''
-            ),
-            monto:             typeof r.MontoTotal === 'number' ? r.MontoTotal : null,
-            tipo:              'COT' as const,
-          }
-        }
-      } catch { /* ignorar */ }
-    }
 
     return null
   }
