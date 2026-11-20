@@ -1,175 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { fromZonedTime } from 'date-fns-tz'
+import {
+  MP_AUTH_URL, MP_SEARCH_URL, MP_OC_URL, MP_API_URL,
+  type ItemSync,
+  parseFechaMP, parseFechaISO, tipoDesdeCodigoExterno,
+  fetchCOT, fetchLicitaciones,
+} from '@/lib/mp-api'
 
-const TZ = 'America/Santiago'
+export type { ItemSync }
 
-// ── Buscador (Compras ágiles / COT) ──────────────────────────
-const MP_AUTH_URL    = 'https://servicios-prd.mercadopublico.cl/v1/auth/publico'
-const MP_SEARCH_URL  = 'https://api.buscador.mercadopublico.cl/compra-agil'
 const MP_API_KEY     = process.env.MP_BUSCADOR_API_KEY ?? ''
 if (!MP_API_KEY) {
   console.error('[sync] MP_BUSCADOR_API_KEY no configurada — las compras ágiles (COT) no funcionarán')
 }
 
-// ── API oficial (LE / LP / LR / L1 / OC) ───────────────────
-const MP_API_URL     = 'https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json'
-const MP_OC_URL      = 'https://api.mercadopublico.cl/servicios/v1/publico/ordenesdecompra.json'
-
 const REGIONES_DEFAULT = ['16'] // Ñuble
-
-// Tipo unificado para mostrar en la UI
-export interface ItemSync {
-  codigo: string
-  nombre: string
-  descripcion: string | null
-  fecha_publicacion: string | null // ISO, null si el formato no fue reconocido
-  fecha_cierre: string | null      // ISO
-  organismo: string
-  monto: number | null
-  tipo: 'COT' | 'LE' | 'LP' | 'LR' | 'L1' | 'LC'
-  region?: string // código numérico de región MP
-}
-
-// "2026-06-02 15:39" → ISO Chile
-// Convierte cualquier formato de fecha de Mercado Público a UTC ISO string.
-// Nunca hardcodea el offset — usa fromZonedTime para respetar horario de verano/invierno.
-function parseFechaMP(s: string | null | undefined): string | null {
-  if (!s) return null
-
-  // Ya es un ISO con timezone (UTC o con offset): parsear directo sin re-convertir
-  if (s.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(s)) {
-    const d = new Date(s)
-    return isNaN(d.getTime()) ? null : d.toISOString()
-  }
-
-  // Formato buscador: "2026-06-02 16:49" (YYYY-MM-DD HH:MM, hora Chile local)
-  const m1 = s.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/)
-  if (m1) return fromZonedTime(`${m1[1]}-${m1[2]}-${m1[3]}T${m1[4]}:${m1[5]}:00`, TZ).toISOString()
-
-  // Formato API oficial ISO sin offset: "2026-06-02T16:41:22.677" (hora Chile local)
-  const m2 = s.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/)
-  if (m2) return fromZonedTime(m2[1], TZ).toISOString()
-
-  // Formato API oficial chileno: "03-06-2026 9:02:58" (DD-MM-YYYY H:MM:SS, hora Chile local)
-  const m3 = s.match(/^(\d{1,2})-(\d{2})-(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/)
-  if (m3) {
-    const local = `${m3[3]}-${m3[2]}-${m3[1].padStart(2, '0')}T${m3[4].padStart(2, '0')}:${m3[5]}:${m3[6] ?? '00'}`
-    return fromZonedTime(local, TZ).toISOString()
-  }
-
-  return null
-}
-
-function parseFechaISO(s: string | null | undefined): Date | null {
-  const iso = parseFechaMP(s)
-  return iso ? new Date(iso) : null
-}
-
-function tipoDesdeCodigoExterno(codigo: string): ItemSync['tipo'] {
-  const m = codigo.match(/-(L[A-Z0-9]+|CO[A-Z]?\d*)$/i)
-  if (!m) return 'COT'
-  const t = m[1].replace(/\d+$/, '').toUpperCase()
-  if (t === 'L1') return 'L1'
-  if (t === 'LE') return 'LE'
-  if (t === 'LP') return 'LP'
-  if (t === 'LR') return 'LR'
-  if (t === 'LC') return 'LC'
-  return 'COT'
-}
-
-// ── Fetch COT desde buscador ─────────────────────────────────
-async function fetchCOT(dateFrom: string, dateTo: string, regiones: string[]): Promise<ItemSync[]> {
-  const tokenRes = await fetch(MP_AUTH_URL, {
-    headers: { 'Accept': 'application/json', 'Origin': 'https://buscador.mercadopublico.cl' },
-    next: { revalidate: 0 },
-  })
-  const token = (await tokenRes.json()).payload.access_token
-
-  const fetchRegion = async (region: string): Promise<ItemSync[]> => {
-    const params = new URLSearchParams({
-      date_from: dateFrom, date_to: dateTo,
-      order_by: 'recent', region, page_number: '1',
-    })
-
-    const fetchPag = async (page: number) => {
-      params.set('page_number', String(page))
-      const res = await fetch(`${MP_SEARCH_URL}?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'x-api-key': MP_API_KEY,
-          'Accept': 'application/json',
-          'Origin': 'https://buscador.mercadopublico.cl',
-        },
-        next: { revalidate: 0 },
-      })
-      const json = await res.json()
-      return { resultados: json.payload?.resultados ?? [], pageCount: json.payload?.pageCount ?? 1 }
-    }
-
-    const primera = await fetchPag(1)
-    let todas = [...primera.resultados]
-    for (let p = 2; p <= Math.min(primera.pageCount, 10); p++) {
-      todas = todas.concat((await fetchPag(p)).resultados)
-    }
-
-    return todas.map((r: Record<string, unknown>) => ({
-      codigo:            String(r.codigo),
-      nombre:            String(r.nombre ?? ''),
-      descripcion:       null,
-      fecha_publicacion: parseFechaMP(r.fecha_publicacion as string) ?? null,
-      fecha_cierre:      parseFechaMP(r.fecha_cierre as string),
-      organismo:         String(r.organismo ?? ''),
-      monto:             typeof r.monto_disponible_CLP === 'number' ? r.monto_disponible_CLP : null,
-      tipo:              'COT' as const,
-      region,
-    }))
-  }
-
-  const resultados = await Promise.all(regiones.map(r => fetchRegion(r).catch(() => [] as ItemSync[])))
-  const vistos = new Set<string>()
-  return resultados.flat().filter(item => {
-    if (vistos.has(item.codigo)) return false
-    vistos.add(item.codigo)
-    return true
-  })
-}
-
-// ── Fetch LE/LP/LR/L1 desde API oficial ─────────────────────
-async function fetchLicitaciones(ticket: string, regiones: string[]): Promise<ItemSync[]> {
-  const fetchRegion = async (region: string): Promise<ItemSync[]> => {
-    const res = await fetch(
-      `${MP_API_URL}?ticket=${ticket}&estado=publicada&region=${region}`,
-      { next: { revalidate: 0 } }
-    )
-    const json = await res.json()
-    if (json.Codigo && json.Codigo !== 200) return []
-
-    return (json.Listado ?? []).map((r: Record<string, unknown>) => {
-      const fechas = r.Fechas as Record<string, string> | null
-      const comprador = r.Comprador as Record<string, string> | null
-      return {
-        codigo:            String(r.CodigoExterno ?? ''),
-        nombre:            String(r.Nombre ?? ''),
-        descripcion:       r.Descripcion ? String(r.Descripcion) : null,
-        fecha_publicacion: parseFechaMP(fechas?.FechaPublicacion) ?? null,
-        fecha_cierre:      parseFechaMP(fechas?.FechaCierre),
-        organismo:         String(comprador?.NombreOrganismo ?? comprador?.NombreUnidad ?? ''),
-        monto:             typeof r.MontoEstimado === 'number' ? r.MontoEstimado : null,
-        tipo:              tipoDesdeCodigoExterno(String(r.CodigoExterno ?? '')),
-        region,
-      }
-    })
-  }
-
-  const resultados = await Promise.all(regiones.map(r => fetchRegion(r).catch(() => [] as ItemSync[])))
-  const vistos = new Set<string>()
-  return resultados.flat().filter(item => {
-    if (vistos.has(item.codigo)) return false
-    vistos.add(item.codigo)
-    return true
-  })
-}
 
 const TODAS_REGIONES = ['15','1','2','3','4','5','13','6','7','16','8','9','14','10','11','12']
 
@@ -500,7 +345,7 @@ export async function GET(req: NextRequest) {
       ? 'MP_BUSCADOR_API_KEY no configurada en las variables de entorno del servidor'
       : null
     const [cotItems, licItems] = await Promise.all([
-      (MP_API_KEY ? fetchCOT(dateFrom, dateTo, regiones) : Promise.resolve([] as ItemSync[])).catch((e) => {
+      (MP_API_KEY ? fetchCOT(dateFrom, dateTo, regiones, MP_API_KEY) : Promise.resolve([] as ItemSync[])).catch((e) => {
         const msg = e instanceof Error ? e.message : String(e)
         console.error('[sync] fetchCOT error:', e instanceof Error ? e.name : 'UnknownError', msg.replace(/https?:\/\/[^\s]*/g, '[URL]'))
         cotError = msg.includes('timeout') || msg.includes('abort')

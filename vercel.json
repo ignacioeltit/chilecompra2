@@ -7,6 +7,10 @@
     {
       "path": "/api/sync/ordenes-compra",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/sync/auto",
+      "schedule": "0 * * * *"
     }
   ]
 }
