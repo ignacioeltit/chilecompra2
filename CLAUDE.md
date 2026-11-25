@@ -112,8 +112,8 @@ El router cache de Next.js (TTL 30s) impide que `router.refresh()` desde la pág
 ### Tabla `licitaciones`
 
 Campos importantes:
-- `estado`: `'sin_definir' | 'en_proceso' | 'enviada' | 'no_participe' | 'cancelada'`
-- `resultado`: `'ganada' | 'perdida' | 'desierta' | null`
+- `estado`: `'sin_definir' | 'pendiente_enviar' | 'revisar' | 'enviada' | 'no_participe' | 'cancelada' | 'revisado'`
+- `resultado`: `'ganada' | 'perdida' | 'desierta' | 'cerrada_sin_adj' | null`
 - `org_id`: FK a organización del usuario
 - `codigo_chilecompra`: código único de Mercado Público (unique constraint con `org_id`)
 - `categoria_alerta_calc`: calculado por vista `v_licitaciones_con_alerta`
@@ -139,9 +139,22 @@ const CATEGORIAS_EXCLUIDAS = ['resultado_registrado', 'revisado', 'ok', 'cerrada
 ## Convenciones de código
 
 - **TypeScript** estricto — siempre tipar estados y props
-- Estado de dropdown multi-instancia: usar `string | null` (nunca `boolean`) para poder identificar qué instancia está abierta
+- Estado de dropdown multi-instancia: usar `string | null` (nunca `boolean`) para identificar qué instancia está abierta
 - Inline edits muestran spinner con `const [guardando, setGuardando] = useState<string | null>(null)`
-- Después de guardar: llamar `cargar()` para refrescar local, luego `router.refresh()`, luego `localStorage.setItem('dashboard_stale', '1')`
+- Dropdowns con instancias en múltiples lugares del DOM (ej: sidebar desktop + FAB móvil): usar **refs separados** por instancia. Un solo `ref` compartido hace que el último montado sobreescriba al primero, rompiendo el handler de outside-click.
+- Mutaciones con `supabase.update()`: siempre encadenar `.select('id')` y verificar que `data.length > 0`. Si se actualizan 0 filas, RLS bloqueó o la sesión expiró — lanzar un error explícito con mensaje al usuario.
+- Patrón correcto después de guardar (solo si el save tuvo éxito):
+  ```typescript
+  try {
+    await actualizarDirecto(campos)
+    await cargar()
+    localStorage.setItem('dashboard_stale', '1')
+    router.refresh()
+  } catch (e) {
+    setErrorMsg(e instanceof Error ? e.message : 'Error al guardar')
+  }
+  ```
+- El evento `storage` para sincronizar dashboard solo funciona **entre pestañas distintas**, no en la misma pestaña. Para mismo-tab, confiar en el Realtime channel.
 
 ## Comandos útiles
 

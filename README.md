@@ -2,7 +2,7 @@
 
 Plataforma web para hacer seguimiento del ciclo completo de licitaciones en Mercado Público (Chilecompra): desde detectar la oportunidad hasta registrar adjudicación y orden de compra.
 
-**Stack:** Next.js 14 + TypeScript + Tailwind CSS + Supabase + Vercel
+**Stack:** Next.js 16 + TypeScript + Tailwind CSS + Supabase + Vercel
 
 ---
 
@@ -198,7 +198,7 @@ src/
 │   │   ├── licitaciones/nueva/# Formulario nueva licitación
 │   │   ├── calendario/        # Vista mensual de cierres
 │   │   ├── reportes/          # Gráficos y métricas
-│   │   └── config/            # Config + importar (solo admin)
+│   │   └── config/            # Config + importar + sincronizar (solo admin)
 │   ├── actions/               # Server Actions: licitaciones, instituciones, usuarios
 │   └── api/
 │       ├── import/route.ts    # POST: importar XLSX
@@ -209,7 +209,8 @@ src/
 │   ├── layout/                # Sidebar, ServiceWorkerInit
 │   └── ui/                    # BadgeAlerta
 ├── hooks/
-│   ├── useRealtimeLicitaciones.ts  # Suscripción Supabase realtime
+│   ├── useRealtimeLicitaciones.ts  # Suscripción Supabase realtime + refresh dashboard
+│   ├── useSyncLicitaciones.ts      # Dispara sync con Mercado Público
 │   ├── useCategoriaAlerta.ts
 │   └── useSupabase.ts             # Auth + perfil
 ├── lib/
